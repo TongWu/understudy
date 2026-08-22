@@ -74,6 +74,12 @@ U.store = (function () {
        taken something in from outside can say so rather than reporting a
        success the next reload would contradict. */
     update: function (fn) { fn(state); var ok = save(); emit(); return ok; },
+    /* Same, without the write. For state that changes faster than it is worth
+       persisting — the running clock, twice a second — where serialising every
+       talk in storage would block the main thread on the one screen that must
+       never stutter. Whoever uses it is responsible for calling update() at
+       the boundaries that matter. */
+    touch: function (fn) { fn(state); emit(); },
     subscribe: function (fn) { subs.push(fn); return function () { var i = subs.indexOf(fn); if (i >= 0) subs.splice(i, 1); }; },
     load: load, save: save, applyBody: applyBody
   };

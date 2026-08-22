@@ -28,7 +28,10 @@ U.run = (function () {
     var secs = Math.max(0, Math.round((api._now() - r.base) / 1000));
     var gained = secs - r.elapsed;
     if (gained <= 0) return;
-    U.store.update(function () {
+    /* In memory only: every boundary below settles up with a real save, and
+       persisting here would serialise every talk in storage — slide images and
+       all — twice a second, on the screen that is in front of an audience. */
+    U.store.touch(function () {
       r.elapsed = secs;
       var slot = r.perBeat[r.beatIndex];
       if (slot) slot.spent += gained;
@@ -99,7 +102,7 @@ U.run = (function () {
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
-      tick();
+      tick();                            /* and this settles it to storage below */
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
       var allowed = allowedIndexes();

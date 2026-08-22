@@ -43,6 +43,37 @@ test('what is left over is text, and stays text', () => {
     U.safeHtml('<a href="x>y" onclick=z>t</a><scr<script>ipt>')));
 });
 
+/* The sanitiser rewrites a script somebody wrote by hand. Anything it cannot
+   read as a tag is their prose, and prose is not the parser's to throw away. */
+test('what is not a tag is kept as the words it is', () => {
+  const U = load();
+  assert.equal(U.safeHtml('a < 3 > b'), 'a &lt; 3 &gt; b');
+  assert.equal(U.safeHtml('x <= y and y >= z'), 'x &lt;= y and y &gt;= z');
+  assert.equal(U.safeHtml('</ p>'), '&lt;/ p&gt;');
+});
+
+/* The name has to sit against the bracket, or a comparison becomes markup and
+   eats the words on either side of it. */
+test('a comparison is not a bold tag', () => {
+  const U = load();
+  assert.equal(U.safeHtml('a < b > c'), 'a &lt; b &gt; c');
+  assert.equal(U.safeHtml('<b>this one is</b>'), '<b>this one is</b>');
+});
+
+test('an attribute-bearing tag still comes through as itself', () => {
+  const U = load();
+  assert.equal(U.safeHtml('<p class="x" onclick=y>hi</p>'), '<p>hi</p>');
+  assert.equal(U.safeHtml('<span data-k="v">t</span>'), '<span>t</span>');
+});
+
+/* Not prose either way, and a comment can carry a > of its own. */
+test('comments and doctypes go, and take no words with them', () => {
+  const U = load();
+  assert.equal(U.safeHtml('<!-- a > b -->kept'), 'kept');
+  assert.equal(U.safeHtml('<!doctype html><p>hi</p>'), '<p>hi</p>');
+  assert.equal(U.safeHtml('<!-- unterminated'), '');
+});
+
 test('running it twice changes nothing — it is applied at more than one door', () => {
   const U = load();
   const dirty = '<p onclick=x>a<img src=y onerror=z><style>q</style></p>';

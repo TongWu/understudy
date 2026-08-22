@@ -68,6 +68,28 @@ test('pausing keeps what was spent before the pause', () => {
   assert.equal(U.run.current().perBeat[0].spent, 10);
 });
 
+/* The clock ticks twice a second on the screen an audience is looking at.
+   Serialising every talk in storage — slide images and all — at that rate is
+   the one thing that must not happen there; the boundaries do the writing. */
+test('the ticking clock does not write to storage; the boundaries do', () => {
+  const U = load();
+  let writes = 0;
+  globalThis.localStorage.setItem = () => { writes++; };
+  U.run.start({});
+  U.run.toggle(true);
+  const after = writes;
+  U.advance(1); U.advance(1); U.advance(1);
+  assert.equal(writes, after, 'three ticks, no writes');
+  assert.equal(U.run.current().elapsed, 3, 'and the clock still moved');
+  U.run.go(1);
+  assert.ok(writes > after, 'changing beat settles it to storage');
+  const atBeat = writes;
+  U.advance(2);
+  assert.equal(writes, atBeat, 'then quiet again');
+  U.run.toggle(false);
+  assert.ok(writes > atBeat, 'and so does pausing');
+});
+
 test('remaining counts down inside the current beat and goes negative', () => {
   const U = load();
   U.run.start({});                      // beat 00 budget is 45s

@@ -1390,12 +1390,26 @@ U.safeHtml = function (html) {
     var lt = src.indexOf('<', i);
     if (lt < 0) { out += text(src.slice(i)); break; }
     out += text(src.slice(i, lt));
+
+    /* A comment can carry a > of its own, so it ends where it says it ends. */
+    if (src.substr(lt, 4) === '<!--') {
+      var close = src.indexOf('-->', lt);
+      i = close < 0 ? src.length : close + 3;
+      continue;
+    }
     var gt = src.indexOf('>', lt);
     if (gt < 0) { out += text(src.slice(lt)); break; }          /* an unfinished tag is text */
-    var m = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)/.exec(src.slice(lt, gt + 1));
-    var name = m ? m[2].toLowerCase() : '';
+    var span = src.slice(lt, gt + 1);
     i = gt + 1;
-    if (!m) continue;
+    if (/^<[!?]/.test(span)) continue;                          /* a doctype is not prose */
+
+    /* The name has to sit right against the bracket. Allowing a space made
+       "a < b > c" — a comparison somebody wrote — parse as a bold tag and eat
+       the words around it. What is not a tag is text, and is kept as text:
+       "a < 3 > b" belongs to the speaker, not to the parser. */
+    var m = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(span);
+    if (!m) { out += text(span); continue; }
+    var name = m[2].toLowerCase();
     if (!m[1] && U.HTML_DROP[name]) {                           /* skip what it wraps, too */
       var end = src.toLowerCase().indexOf('</' + name, i);
       i = end < 0 ? src.length : (src.indexOf('>', end) < 0 ? src.length : src.indexOf('>', end) + 1);
@@ -1574,6 +1588,12 @@ U.store = (function () {
        taken something in from outside can say so rather than reporting a
        success the next reload would contradict. */
     update: function (fn) { fn(state); var ok = save(); emit(); return ok; },
+    /* Same, without the write. For state that changes faster than it is worth
+       persisting — the running clock, twice a second — where serialising every
+       talk in storage would block the main thread on the one screen that must
+       never stutter. Whoever uses it is responsible for calling update() at
+       the boundaries that matter. */
+    touch: function (fn) { fn(state); emit(); },
     subscribe: function (fn) { subs.push(fn); return function () { var i = subs.indexOf(fn); if (i >= 0) subs.splice(i, 1); }; },
     load: load, save: save, applyBody: applyBody
   };
@@ -2706,7 +2726,10 @@ U.run = (function () {
     var secs = Math.max(0, Math.round((api._now() - r.base) / 1000));
     var gained = secs - r.elapsed;
     if (gained <= 0) return;
-    U.store.update(function () {
+    /* In memory only: every boundary below settles up with a real save, and
+       persisting here would serialise every talk in storage — slide images and
+       all — twice a second, on the screen that is in front of an audience. */
+    U.store.touch(function () {
       r.elapsed = secs;
       var slot = r.perBeat[r.beatIndex];
       if (slot) slot.spent += gained;
@@ -2777,7 +2800,7 @@ U.run = (function () {
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
-      tick();
+      tick();                            /* and this settles it to storage below */
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
       var allowed = allowedIndexes();

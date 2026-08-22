@@ -71,12 +71,26 @@ U.safeHtml = function (html) {
     var lt = src.indexOf('<', i);
     if (lt < 0) { out += text(src.slice(i)); break; }
     out += text(src.slice(i, lt));
+
+    /* A comment can carry a > of its own, so it ends where it says it ends. */
+    if (src.substr(lt, 4) === '<!--') {
+      var close = src.indexOf('-->', lt);
+      i = close < 0 ? src.length : close + 3;
+      continue;
+    }
     var gt = src.indexOf('>', lt);
     if (gt < 0) { out += text(src.slice(lt)); break; }          /* an unfinished tag is text */
-    var m = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)/.exec(src.slice(lt, gt + 1));
-    var name = m ? m[2].toLowerCase() : '';
+    var span = src.slice(lt, gt + 1);
     i = gt + 1;
-    if (!m) continue;
+    if (/^<[!?]/.test(span)) continue;                          /* a doctype is not prose */
+
+    /* The name has to sit right against the bracket. Allowing a space made
+       "a < b > c" — a comparison somebody wrote — parse as a bold tag and eat
+       the words around it. What is not a tag is text, and is kept as text:
+       "a < 3 > b" belongs to the speaker, not to the parser. */
+    var m = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(span);
+    if (!m) { out += text(span); continue; }
+    var name = m[2].toLowerCase();
     if (!m[1] && U.HTML_DROP[name]) {                           /* skip what it wraps, too */
       var end = src.toLowerCase().indexOf('</' + name, i);
       i = end < 0 ? src.length : (src.indexOf('>', end) < 0 ? src.length : src.indexOf('>', end) + 1);

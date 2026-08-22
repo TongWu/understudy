@@ -30,9 +30,12 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # CI runs on pull requests too, and a green PR is not a reason to publish.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     steps:
       - uses: actions/checkout@v4
         with:
