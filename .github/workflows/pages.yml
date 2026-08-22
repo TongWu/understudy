@@ -37,7 +37,7 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # The exact commit CI passed on, not whatever main has drifted to.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}

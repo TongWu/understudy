@@ -26,10 +26,10 @@ jobs:
   build-and-unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false   # nothing here pushes; don't leave a token in .git/config
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with: { node-version: '22' }
 
       - name: The committed product must be what the sources build
@@ -49,10 +49,10 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false   # nothing here pushes; don't leave a token in .git/config
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with: { node-version: '22' }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
