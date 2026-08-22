@@ -1,0 +1,60 @@
+/* Two token sets and one density scale. Every screen reads these and nothing
+   else, so "纸 / 夜" and "紧凑 / 舒适" stay pure token swaps — the layout is
+   identical under all four combinations. Stage screens set data-theme="night"
+   on their own root regardless of the desk theme: on stage a bright surface
+   lands on the presenter's face and ruins their night vision. */
+:root {
+  --paper:#FAF7F2; --paper-2:#F2EDE4; --card:#FFFDFA; --card-2:#F7F3EB;
+  --ink:#221E19; --ink-2:#5C544A; --ink-3:#8C8375; --ink-4:#B7AE9F;
+  --rule:#DDD4C5; --rule-soft:#EAE3D7;
+  --go:#17804F; --tight:#C08717; --over:#B33121;
+  --go-bg:#E4EFE8; --tight-bg:#F7EFDB; --over-bg:#F7E6E1;
+  --go-bd:#B4CFC0; --tight-bd:#E2C68B; --over-bd:#DFB0A5;
+  --wash:#F3E7CB;
+  --chip:#35566E; --chip-bg:#E8EEF3; --chip-bd:#C7D6E0;
+  --sel:#F1EEE7;
+
+  --serif:"Instrument Serif",Georgia,"Times New Roman",serif;
+  --read:"Newsreader",Georgia,"Songti SC","Noto Serif CJK SC",serif;
+  --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",system-ui,sans-serif;
+  --cond:"IBM Plex Sans Condensed","IBM Plex Sans","PingFang SC","Noto Sans CJK SC",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+
+  /* density scale — the only thing 紧凑 / 舒适 moves */
+  --fs-ui:14px;   --lh-ui:1.55;
+  --fs-script:16px; --lh-script:1.78;  --gap-script:14px;
+  --fs-say:13.5px;  --lh-say:1.6;
+  --fs-lead:13.5px;
+  --pad-cue:12px;  --cue-rule:1px;
+  --pad-beat:8px 14px 9px 11px;
+  --radius:4px;
+}
+[data-density="roomy"] {
+  --fs-ui:15px;   --lh-ui:1.7;
+  --fs-script:17.5px; --lh-script:1.95; --gap-script:19px;
+  --fs-say:15px;    --lh-say:1.7;
+  --fs-lead:15px;
+  --pad-cue:17px;  --cue-rule:0px;
+  --pad-beat:13px 14px 14px 11px;
+  --radius:6px;
+}
+[data-theme="night"] {
+  --paper:#17130E; --paper-2:#110E0A; --card:#201B15; --card-2:#1A1610;
+  --ink:#EFE8DB; --ink-2:#B0A594; --ink-3:#80766A; --ink-4:#584F45;
+  --rule:#352F29; --rule-soft:#292420;
+  --go:#6FBE86; --tight:#E9A93C; --over:#E2634A;
+  --go-bg:#16241B; --tight-bg:#2B2113; --over-bg:#2B1914;
+  --go-bd:#2E5540; --tight-bd:#6C5527; --over-bd:#6C3B30;
+  --wash:#3F3318;
+  --chip:#93B6CD; --chip-bg:#1B242A; --chip-bd:#33444E;
+  --sel:#262019;
+}
+/* Stage surfaces: a warmer, deeper black than the night desk, because the
+   room is dark and the type is read from two metres away. */
+.u-stage {
+  --paper:#16130F; --paper-2:#211D17; --card:#2D2820; --card-2:#211D17;
+  --ink:#F6F0E5; --ink-2:#A79C8A; --ink-3:#6E6557; --ink-4:#4A4238;
+  --rule:#3B342B; --rule-soft:#2A251F;
+  --go:#6FBE86; --tight:#E9A93C; --over:#E2634A;
+  color-scheme: dark;
+}
