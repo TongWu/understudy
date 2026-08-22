@@ -61,22 +61,43 @@ U.io = (function () {
     return JSON.stringify(production).replace(/</g, '\\u003c');
   }
 
+  /* A copy for somebody else. The 旁批 are the one thing in this product that
+     was promised never to leave — they are what you tell yourself about your
+     own performance, and half of them are only writable because nobody else
+     will read them. Printing and the plain-text export never carried them;
+     the self-contained copy did, because that copy is your workspace. So the
+     choice is made explicit rather than made for you: 导出 hands you
+     everything, 给别人 hands over the talk with the private layer cut out. */
+  function strip(production) {
+    var out = JSON.parse(JSON.stringify(production || {}));
+    (out.beats || []).forEach(function (b) {
+      delete b.notes;
+      (b.cue || []).forEach(function (c) { delete c.notes; });
+    });
+    return out;
+  }
+
   function exportHtml(opts) {
     opts = opts || {};
     if (typeof document === 'undefined') return '';
     var p = opts.production || U.store.production();
     if (!p) return '';
-    var tag = document.getElementById('embedded-production');
-    var html;
-    if (tag) {
-      var before = tag.textContent;
-      tag.textContent = bakeable(p);
-      html = '<!doctype html>\n' + document.documentElement.outerHTML + '\n';
-      tag.textContent = before;
-    } else {
-      html = '<!doctype html>\n' + document.documentElement.outerHTML + '\n';
-    }
-    if (opts.download !== false) download(safeName(p.title, '.html'), html, 'text/html');
+    if (opts.share) p = strip(p);
+    /* Written from a copy of the document, never from the document. Two
+       reasons, and the second is the one that bites: serialising the live tree
+       baked whatever was on screen into the file as static markup underneath
+       the real app — the talk written out twice, once as data and once as a
+       screen that boot discards on the first paint. Harmless in a working copy
+       and fatal in a shared one, because the 旁批 cut out of the JSON were
+       still sitting there in the editor's DOM. And doing it on a clone means
+       exporting mid-sentence does not disturb the caret you are typing with. */
+    var doc = document.documentElement.cloneNode(true);
+    var app = doc.querySelector('#app');
+    if (app) U.clear(app);
+    var tag = doc.querySelector('#embedded-production');
+    if (tag) tag.textContent = bakeable(p);
+    var html = '<!doctype html>\n' + doc.outerHTML + '\n';
+    if (opts.download !== false) download(safeName(p.title, opts.share ? ' 给别人.html' : '.html'), html, 'text/html');
     return html;
   }
 
@@ -447,6 +468,8 @@ U.io = (function () {
     plainText: plainText,
     print: print,
     printSheets: printSheets,
+    downscale: downscale,
+    strip: strip,
     importImages: importImages,
     importDeck: importDeck,
     sortFiles: sortFiles,

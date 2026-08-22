@@ -89,7 +89,7 @@ function chromePath() {
   ok(nums.explained === 3, 'the glossary ships part-written, which is the state the check exists to catch');
 
   /* Export is only proven by reopening what it wrote. */
-  const html = await page.evaluate(() => window.U.io.exportHtml({ returnOnly: true }) || null);
+  const html = await page.evaluate(() => window.U.io.exportHtml({ download: false }) || null);
   if (html) {
     const tmp = path.join(os.tmpdir(), 'understudy-roundtrip.html');
     fs.writeFileSync(tmp, html);
@@ -106,8 +106,32 @@ function chromePath() {
       'an exported copy reopens as the same talk, intact');
     await p2.close();
   } else {
-    ok(false, 'exportHtml({returnOnly:true}) gave nothing back to reopen');
+    ok(false, 'exportHtml({ download: false }) gave nothing back to reopen');
   }
+
+  /* The 旁批 are the layer the product promises stays yours. Asserted on the
+     bytes of both files rather than on the object, because what leaves the
+     machine is the file. */
+  const notes = await page.evaluate(() => {
+    /* Written now rather than taken from the sample, whose text is compiled
+       into the application and would be found in any export of anything. */
+    const needle = 'ZZ-PRIVATE-NEEDLE-ZZ';
+    window.U.store.update(() => {
+      const p = window.U.store.production();
+      p.beats[0].notes = [needle + '-beat'];
+      p.beats[0].cue[0].notes = [needle + '-cue'];
+    });
+    return {
+      working: window.U.io.exportHtml({ download: false }).split(needle).length - 1,
+      shared: window.U.io.exportHtml({ download: false, share: true }).includes(needle),
+      /* And the export is the app, not a photograph of the screen it was
+         taken from: the mounted view must not be serialised with it. */
+      screen: /<div id="app"><\/div>/.test(window.U.io.exportHtml({ download: false }))
+    };
+  });
+  ok(notes.working === 2, 'the working copy keeps your 旁批, on the beat and on the cue — it is your backup');
+  ok(!notes.shared, 'the copy for somebody else carries neither');
+  ok(notes.screen, 'and neither copy bakes in the screen that happened to be open');
 
   /* The promise the whole build exists for: one file, no network. Asserted
      two ways, because either alone is weak — the page must not reach for a

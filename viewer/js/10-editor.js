@@ -95,8 +95,17 @@
         doorway('AI 填充', ['aifill', 'ai-fill', 'ai', 'fill']),
         doorway('导出', ['export', 'share']) ||
           (U.io && U.io.exportHtml
-            ? U.el('button', { class: 'u-btn', onclick: function () { U.io.exportHtml(); } }, '导出')
+            ? U.el('button', {
+              class: 'u-btn', title: '你的工作副本 —— 整个应用加上这场演讲，旁批也在里面',
+              onclick: function () { U.io.exportHtml(); }
+            }, '导出')
             : null),
+        (U.io && U.io.exportHtml
+          ? U.el('button', {
+            class: 'u-btn', title: '同样一个文件，但把旁批拿掉 —— 那层只属于你',
+            onclick: function () { U.io.exportHtml({ share: true }); }
+          }, '给别人')
+          : null),
         doorway('排练', ['rehearsal', 'rehearse', 'rehearsal-setup', 'setup']),
         doorway('上台', ['prompter', 'stage', 'live', 'present'])
       ].filter(Boolean)

@@ -223,3 +223,19 @@ test('a fill is laundered before it is anything else', () => {
   assert.equal(one.cue[0].say[0], '<span>line</span>');
   assert.ok(!/onerror|onload|onclick/.test(JSON.stringify(res.beats)), 'no handler anywhere in what was accepted');
 });
+
+/* 旁批 are the one thing the product promised would not travel. */
+test('the copy for somebody else has no 旁批 in it, and nothing else is missing', () => {
+  const U = load();
+  const p = production();
+  p.beats[0].cue[0].notes = ['别忘了停一拍'];
+  const shared = U.io.strip(p);
+  assert.equal(shared.beats[0].notes, undefined);
+  assert.equal(shared.beats[0].cue[0].notes, undefined);
+  assert.ok(!JSON.stringify(shared).includes('这里说慢一点'));
+  assert.ok(!JSON.stringify(shared).includes('别忘了停一拍'));
+  assert.equal(shared.beats.length, p.beats.length);
+  assert.equal(shared.beats[0].script, p.beats[0].script, 'the talk itself is untouched');
+  assert.equal(shared.beats[0].cue[0].say[0], p.beats[0].cue[0].say[0]);
+  assert.deepEqual(p.beats[0].notes, ['这里说慢一点'], 'and the working copy keeps its own');
+});
