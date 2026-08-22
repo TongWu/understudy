@@ -28,6 +28,65 @@ U.el = function (tag, attrs, kids) {
 };
 U.clear = function (node) { while (node && node.firstChild) node.removeChild(node.firstChild); return node; };
 
+/* ---------- foreign markup ---------- */
+/* Text going into a string of HTML. Only ever for values that are text —
+   a title, an occasion — never for markup that is already markup. */
+U.esc = function (s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
+/* The tags a script is allowed to be made of. Everything a person writes in
+   the editor, and everything the browser produces when they paste, fits in
+   here; nothing else in this product needs more. */
+U.HTML_TAGS = {
+  p: 1, br: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1,
+  span: 1, div: 1, ul: 1, ol: 1, li: 1, blockquote: 1
+};
+
+/* Tags whose text is not prose either. Unwrapping these would spill a
+   stylesheet into the middle of the script — which is what a browser hands
+   over when you copy a paragraph off a web page. */
+U.HTML_DROP = {
+  script: 1, style: 1, head: 1, title: 1, template: 1,
+  noscript: 1, iframe: 1, object: 1, svg: 1, math: 1
+};
+
+/* The one gate for markup this session did not write: an AI reply, a
+   paragraph pasted off the web, someone else's exported file. The stage
+   renders scripts and cue leads as HTML, so a string arriving from outside is
+   a string that can run — and this page holds every talk you have written.
+
+   Rewritten rather than filtered: what comes out is text runs with their
+   angle brackets escaped, plus bare tags from the list above. No attribute
+   survives, because there is no formatting here that needs one and every way
+   this goes wrong is an attribute. A tag that is not on the list is unwrapped
+   and its text kept, which is what you want when a model wraps a paragraph in
+   something ornamental. Escaping the leftover brackets also means the result
+   stays safe when it is later joined to another string. */
+U.safeHtml = function (html) {
+  function text(s) { return s.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  var src = String(html == null ? '' : html), out = '', i = 0;
+  while (i < src.length) {
+    var lt = src.indexOf('<', i);
+    if (lt < 0) { out += text(src.slice(i)); break; }
+    out += text(src.slice(i, lt));
+    var gt = src.indexOf('>', lt);
+    if (gt < 0) { out += text(src.slice(lt)); break; }          /* an unfinished tag is text */
+    var m = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)/.exec(src.slice(lt, gt + 1));
+    var name = m ? m[2].toLowerCase() : '';
+    i = gt + 1;
+    if (!m) continue;
+    if (!m[1] && U.HTML_DROP[name]) {                           /* skip what it wraps, too */
+      var end = src.toLowerCase().indexOf('</' + name, i);
+      i = end < 0 ? src.length : (src.indexOf('>', end) < 0 ? src.length : src.indexOf('>', end) + 1);
+      continue;
+    }
+    if (U.HTML_TAGS[name]) out += '<' + m[1] + name + '>';
+  }
+  return out;
+};
+
 /* ---------- time ---------- */
 U.fmt = function (secs) {
   var s = Math.round(Math.abs(Number(secs) || 0));

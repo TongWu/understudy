@@ -26,22 +26,26 @@
     var head = [];
     if (p.occasion) head.push(p.occasion);
     head.push(p.title || '未命名');
+    /* These land in a string that is written to innerHTML, so the title is
+       escaped rather than trusted. Not only for what a title could carry: an
+       unescaped < in "budget < 12:00" would silently eat the rest of the line
+       out of the prompt you are about to hand to a model. */
     return {
-      occasion: head.join(' · '),
+      occasion: U.esc(head.join(' · ')),
       audience: Number(p.audience) ? Number(p.audience) + ' 人' : '（人数待填）',
       duration: minutes(p.target),
       language: speak === notes
-        ? langName(speak) + '讲'
-        : langName(speak) + '讲；我的母语是' + langName(notes),
+        ? U.esc(langName(speak)) + '讲'
+        : U.esc(langName(speak)) + '讲；我的母语是' + U.esc(langName(notes)),
       target: String(Number(p.target) || 0),
       pace: speak === 'zh'
         ? '按中文 <b>' + (rate.zh || U.DEFAULT_RATE.zh) + '</b> 字/分'
-        : '按' + langName(speak) + ' <b>' + (rate.en || U.DEFAULT_RATE.en) + '</b> 词/分'
+        : '按' + U.esc(langName(speak)) + ' <b>' + (rate.en || U.DEFAULT_RATE.en) + '</b> 词/分'
     };
   }
 
-  /* Verbatim from design/AIFill.dc.html. Bold is markup, not content — the
-     plain text handed to the model is this string with the tags taken out. */
+  /* Bold is markup, not content — the plain text handed to the model is this
+     string with the tags taken out. */
   function promptHtml(p) {
     var s = occasionSlots(p);
     return '你是我的演讲排练助手。把随附的幻灯片做成一份演讲台本。\n' +

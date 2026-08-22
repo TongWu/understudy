@@ -309,6 +309,22 @@
   }
   function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 400); }
 
+  /* What the browser hands over on a paste from a web page is a whole
+     document — stylesheets, colours, classes that fight the theme, and markup
+     nobody in this session wrote. Take the words and the shape of the
+     paragraphs; leave the rest at the door. */
+  function paste(e) {
+    var data = e.clipboardData;
+    if (!data) return;
+    e.preventDefault();
+    var rich = data.getData('text/html');
+    var html = rich
+      ? U.safeHtml(rich)
+      : U.esc(data.getData('text/plain')).replace(/\r?\n/g, '<br>');
+    document.execCommand('insertHTML', false, html);
+    queueSave();
+  }
+
   function renderScriptFoot(beat) {
     var rate = rateOf();
     var estimate = U.estimate(beat.script, rate);
@@ -567,7 +583,7 @@
       refs.cues = U.el('div', { class: 'u-ed__cuelist' });
       refs.script = U.el('div', {
         class: 'u-read u-ed__script', contenteditable: 'true', spellcheck: 'false',
-        'aria-label': '讲稿', oninput: queueSave, onblur: flush
+        'aria-label': '讲稿', oninput: queueSave, onblur: flush, onpaste: paste
       });
       refs.scriptFoot = U.el('div', { class: 'u-ed__scriptfoot' });
 

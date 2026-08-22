@@ -204,3 +204,22 @@ test('plainText survives a production with nothing in it', () => {
   const bare = { title: '', beats: [] };
   assert.equal(U.io.plainText(bare), '未命名\n场地时间 0:00 · 0 节\n');
 });
+
+/* The AI-fill paste is the one place text from outside becomes markup inside a
+   page that holds every talk you have written. */
+test('a fill is laundered before it is anything else', () => {
+  const U = load();
+  const res = U.io.validateFill(JSON.stringify({
+    beats: [
+      { n: '00', budget: 60, script: '<p>ok</p><img src=x onerror=steal()>',
+        cue: [{ lead: '<b>lead</b><svg onload=steal()>', say: ['<span onclick=steal()>line</span>'] }] },
+      { n: '01', budget: 60, script: '<p>b</p>', cue: [{ lead: 'l', say: ['s'] }] },
+      { n: '02', budget: 60, script: '<p>c</p>', cue: [{ lead: 'l', say: ['s'] }] }
+    ]
+  }), production());
+  const one = res.beats[0];
+  assert.equal(one.script, '<p>ok</p>', 'the markup a script is made of survives, the rest does not');
+  assert.equal(one.cue[0].lead, '<b>lead</b>');
+  assert.equal(one.cue[0].say[0], '<span>line</span>');
+  assert.ok(!/onerror|onload|onclick/.test(JSON.stringify(res.beats)), 'no handler anywhere in what was accepted');
+});

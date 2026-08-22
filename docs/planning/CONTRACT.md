@@ -111,6 +111,22 @@ U.run.current()       // = state.run
 把演讲的 JSON 塞进 `#embedded-production` 的内容里。启动时若发现内嵌 JSON，
 它优先于 localStorage —— 打开那个文件的人要的是那一场。
 
+### 外来 HTML 只有一道门
+台上把 `script`、`cue.lead`、`cue.say` 当 HTML 渲染，所以这三样只要不是本次
+会话自己写的，就得先过 `U.safeHtml()`：白名单标签、去掉全部属性、非正文标签
+（`<script>`/`<style>`/…）连内容一起丢、剩下的尖括号转义。
+
+进门的地方一共三处，别在渲染处补：
+
+| 入口 | 在哪过门 |
+|---|---|
+| AI 填充粘进来的 JSON | `42-io.js` `validateFill()` |
+| 往讲稿里粘网页内容 | `10-editor.js` `paste()` |
+| 拼进 HTML 字符串的纯文本（标题、场合、补回的那句） | `U.esc()` |
+
+`U.esc()` 是给**文本**用的，`U.safeHtml()` 是给**已经是标记**的东西用的；
+拿反了会把 `&amp;` 显示出来。
+
 ### 顶栏（`04-chrome.js`）
 ```js
 U.chrome.topbar({ crumb:'排练', middle: node, actions:[node,...] })

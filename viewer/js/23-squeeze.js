@@ -83,8 +83,8 @@ U.reflow = (function () {
   function makeUpCue(hit) {
     return {
       flag: 'SAY', cols: [],
-      lead: '<b>补回 ' + hit.beat.n + '</b> —— ' + (hit.missing[0] || hit.beat.title),
-      say: hit.line ? [hit.line] : [],
+      lead: '<b>补回 ' + U.esc(hit.beat.n) + '</b> —— ' + U.esc(hit.missing[0] || hit.beat.title),
+      say: hit.line ? [U.esc(hit.line)] : [],
       notes: ['这句是跳过 ' + hit.beat.n + ' 之后补的'],
       madeUpFor: hit.beat.id
     };

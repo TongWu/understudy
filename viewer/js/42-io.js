@@ -352,6 +352,9 @@ U.io = (function () {
       err('count', '节数对不上：这边有 ' + beats.length + ' 节，这份给了 ' + incoming.length + ' 节。');
     }
 
+    /* Everything past this line is markup this session did not write. The
+       stage renders leads and scripts as HTML, so it goes through the gate
+       once, here, rather than at each of the dozen places that render it. */
     var rate = (production && production.rate) || U.DEFAULT_RATE;
     var target = Number(production && production.target) || 0;
     var noCue = [], noScript = [], guessed = [], sum = 0;
@@ -361,7 +364,7 @@ U.io = (function () {
       var mine = beats[i] || {};
       var tag = b.n ? String(b.n) : label(mine, i);
       var cue = Array.isArray(b.cue) ? b.cue.filter(function (c) { return c && (c.lead || (c.say && c.say.length)); }) : [];
-      var script = typeof b.script === 'string' ? b.script : '';
+      var script = U.safeHtml(typeof b.script === 'string' ? b.script : '');
       if (!cue.length) noCue.push(tag);
       if (!blockText(script).length) noScript.push(tag);
 
@@ -382,8 +385,8 @@ U.io = (function () {
           return {
             flag: c.flag ? String(c.flag) : '',
             cols: Array.isArray(c.cols) ? c.cols.map(String) : [],
-            lead: String(c.lead == null ? '' : c.lead),
-            say: Array.isArray(c.say) ? c.say.map(String) : (c.say ? [String(c.say)] : []),
+            lead: U.safeHtml(c.lead),
+            say: (Array.isArray(c.say) ? c.say : (c.say ? [c.say] : [])).map(function (x) { return U.safeHtml(x); }),
             notes: Array.isArray(c.notes) ? c.notes.map(String) : []
           };
         }),
