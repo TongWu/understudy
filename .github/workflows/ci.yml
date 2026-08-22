@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; don't leave a token in .git/config
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
 
@@ -48,6 +50,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; don't leave a token in .git/config
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: npm ci

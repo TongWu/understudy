@@ -9,8 +9,14 @@ name: Deploy demo (GitHub Pages)
 # ONE-TIME SETUP: Settings -> Pages -> Source = "Deploy from a branch",
 # Branch = gh-pages / (root).
 
+# Runs after CI rather than on the push itself: the demo is the product, and
+# publishing a build whose tests never ran is how a broken product becomes the
+# thing everyone downloads. A manual dispatch is a deliberate human act and is
+# allowed through unconditionally.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch: {}
 
@@ -24,9 +30,14 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
         with:
+          # The exact commit CI passed on, not whatever main has drifted to.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false   # the publish authenticates via GH_TOKEN
 
       - name: Build the site
@@ -41,6 +52,7 @@ jobs:
       - name: Publish to the gh-pages root
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
           auth="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -66,7 +78,7 @@ jobs:
               echo "gh-pages is already up to date."
               break
             fi
-            git commit -q -m "Deploy demo @ ${GITHUB_SHA}"
+            git commit -q -m "Deploy demo @ ${SOURCE_SHA}"
             if git push origin gh-pages; then
               echo "Published."
               break
