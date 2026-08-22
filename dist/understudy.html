@@ -1541,9 +1541,11 @@ U.store = (function () {
       if (state.storage) { state.storage = null; }
       return true;
     } catch (e) {
-      /* A private window or file:// with storage denied is not the same as a
-         full quota: nothing was ever going to persist, so there is nothing to
-         warn about. Only a quota failure means work is at risk. */
+      /* Two different sentences to say, and both have to be said. A full quota
+         means the work was persisting and has stopped; storage denied outright
+         — a private window, file:// in a browser that refuses it — means it
+         never was. The second is the more dangerous of the two precisely
+         because nothing looks wrong, so it warns as loudly as the first. */
       state.storage = /quota|exceed/i.test(String(e && (e.name + ' ' + e.message))) ? 'full' : 'off';
       return false;
     }
@@ -1568,7 +1570,10 @@ U.store = (function () {
     open: function (id) { state.currentId = id; state.ui.beatIndex = 0; applyBody(); save(); emit(); },
     ui: function (patch) { Object.assign(state.ui, patch); applyBody(); save(); emit(); },
     /* Mutate through here so every screen repaints and nothing is lost on reload. */
-    update: function (fn) { fn(state); save(); emit(); },
+    /* Returns whether the change reached storage, so a caller that has just
+       taken something in from outside can say so rather than reporting a
+       success the next reload would contradict. */
+    update: function (fn) { fn(state); var ok = save(); emit(); return ok; },
     subscribe: function (fn) { subs.push(fn); return function () { var i = subs.indexOf(fn); if (i >= 0) subs.splice(i, 1); }; },
     load: load, save: save, applyBody: applyBody
   };
@@ -2653,10 +2658,15 @@ U.chrome = (function () {
       U.el('div', { style: { flex: '1' } }),
       /* Not a toast. If the browser cannot hold the work, that has to stay on
          screen until the user has a file in hand. */
-      U.store.get().storage === 'full' ? U.el('button', {
-        class: 'u-top__warn', title: '浏览器存不下了 —— 导出一份带走',
+      U.store.get().storage ? U.el('button', {
+        class: 'u-top__warn',
+        title: U.store.get().storage === 'full'
+          ? '浏览器存不下了 —— 导出一份带走'
+          : '这个浏览器不让存东西（无痕窗口？）—— 关掉这一页就没了，导出一份带走',
         onclick: function () { if (U.io) U.io.exportHtml(); }
-      }, '浏览器存不下了 · 导出一份带走') : null,
+      }, U.store.get().storage === 'full'
+        ? '浏览器存不下了 · 导出一份带走'
+        : '这个浏览器没在存 · 导出一份带走') : null,
       opts.middle || null,
       opts.switches === false ? null : switches(),
       U.el('div', { class: 'u-top__actions' }, opts.actions || [])
@@ -2745,6 +2755,11 @@ U.run = (function () {
     toggle: function (on) {
       var r = cur(); if (!r) return null;
       var want = on == null ? !r.running : !!on;
+      /* Settle up before the boundary moves. Up to half a second is sitting
+         between the last callback and now; on a pause it would be dropped, and
+         on a beat change it would be charged to the beat you just walked into
+         — which is the one number the recap exists to report. */
+      if (!want) tick();
       U.store.update(function () {
         /* Re-anchor on resume so a pause does not count as elapsed time. */
         if (want && !r.running) r.base = api._now() - r.elapsed * 1000;
@@ -2762,6 +2777,7 @@ U.run = (function () {
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
+      tick();
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
       var allowed = allowedIndexes();
@@ -7657,6 +7673,12 @@ U.io = (function () {
      and ten of them do not fit in localStorage at all. Slides are read at slide
      size, so 1600px wide is plenty and costs about a tenth. */
   var MAX_W = 1600, QUALITY = 0.82;
+  function encode(canvas, type) {
+    try {
+      var out = canvas.toDataURL(type, QUALITY);
+      return out.indexOf('data:' + type) === 0 ? out : '';
+    } catch (e) { return ''; }          /* a tainted canvas throws instead */
+  }
   function downscale(dataUrl) {
     return new Promise(function (resolve) {
       /* Vectors are already small and rasterising one would only lose. */
@@ -7670,9 +7692,12 @@ U.io = (function () {
         var ctx = c.getContext('2d');
         if (!ctx) return resolve(dataUrl);
         ctx.drawImage(img, 0, 0, c.width, c.height);
-        var out = c.toDataURL('image/webp', QUALITY);
-        if (out.indexOf('data:image/webp') !== 0) out = c.toDataURL('image/jpeg', QUALITY);
-        resolve(out.length < dataUrl.length ? out : dataUrl);
+        /* A canvas past the browser's limits hands back "data:," rather than
+           throwing, and that is shorter than any real image — so the shorter
+           of the two would have been stored as the slide, and the slide would
+           be gone. Take the result only if it is actually an image. */
+        var out = encode(c, 'image/webp') || encode(c, 'image/jpeg');
+        resolve(out && out.length < dataUrl.length ? out : dataUrl);
       };
       img.onerror = function () { resolve(dataUrl); };
       img.src = dataUrl;
@@ -7709,10 +7734,10 @@ U.io = (function () {
         made.push(beatFromImage(list[i].name, url, start + made.length));
       });
       if (!made.length) return { added: 0, beats: [] };
-      U.store.update(function () { p.beats = (p.beats || []).concat(made); });
+      var stored = U.store.update(function () { p.beats = (p.beats || []).concat(made); });
       /* Whether it actually persisted, so the caller can say so rather than
          reporting a success the next reload would contradict. */
-      return { added: made.length, beats: made, stored: U.store.get().storage !== 'full' };
+      return { added: made.length, beats: made, stored: stored };
     });
   }
 

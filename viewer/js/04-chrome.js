@@ -45,10 +45,15 @@ U.chrome = (function () {
       U.el('div', { style: { flex: '1' } }),
       /* Not a toast. If the browser cannot hold the work, that has to stay on
          screen until the user has a file in hand. */
-      U.store.get().storage === 'full' ? U.el('button', {
-        class: 'u-top__warn', title: '浏览器存不下了 —— 导出一份带走',
+      U.store.get().storage ? U.el('button', {
+        class: 'u-top__warn',
+        title: U.store.get().storage === 'full'
+          ? '浏览器存不下了 —— 导出一份带走'
+          : '这个浏览器不让存东西（无痕窗口？）—— 关掉这一页就没了，导出一份带走',
         onclick: function () { if (U.io) U.io.exportHtml(); }
-      }, '浏览器存不下了 · 导出一份带走') : null,
+      }, U.store.get().storage === 'full'
+        ? '浏览器存不下了 · 导出一份带走'
+        : '这个浏览器没在存 · 导出一份带走') : null,
       opts.middle || null,
       opts.switches === false ? null : switches(),
       U.el('div', { class: 'u-top__actions' }, opts.actions || [])

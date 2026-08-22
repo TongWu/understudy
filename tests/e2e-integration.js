@@ -191,6 +191,48 @@ let browser;
   });
   ok(/u-ed__pick/.test(picked), 'the cue-overload fix puts a mark under the finger (' + picked + ')');
 
+  /* Two failures that only exist in a browser: a canvas that will not encode,
+     and a browser that will not store. Both end in the same place — work the
+     user believes is safe and is not — so both are asserted here. */
+  const guards = await page.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = 2400; c.height = 400;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#123'; ctx.fillRect(0, 0, 2400, 400);
+    const big = c.toDataURL('image/png');
+    const real = await window.U.io.downscale(big);
+
+    const was = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = () => 'data:,';       /* past the limits */
+    const refused = await window.U.io.downscale(big);
+    HTMLCanvasElement.prototype.toDataURL = () => { throw new Error('tainted'); };
+    const threw = await window.U.io.downscale(big);
+    HTMLCanvasElement.prototype.toDataURL = was;
+
+    /* Driven through a real failing write rather than by setting the flag,
+       because a successful save clears the flag — which is the behaviour that
+       makes the warning trustworthy in the first place. */
+    const setItem = Storage.prototype.setItem;
+    const warn = (name) => {
+      Storage.prototype.setItem = () => { const e = new Error(name); e.name = name; throw e; };
+      window.U.store.ui({ view: 'editor' });
+      const b = document.querySelector('.u-top__warn');
+      return b ? b.textContent : '';
+    };
+    const full = warn('QuotaExceededError');
+    const off = warn('SecurityError');
+    Storage.prototype.setItem = setItem;
+    window.U.store.ui({ view: 'editor' });
+    const none = (document.querySelector('.u-top__warn') || {}).textContent || '';
+    return { shrank: real.length < big.length && real.indexOf('data:image/') === 0, refused, threw, full, off, none };
+  });
+  ok(guards.shrank, 'a slide wider than the cap comes back smaller and still an image');
+  ok(guards.refused.indexOf('data:image/png') === 0 && guards.threw.indexOf('data:image/png') === 0,
+    'and a canvas that cannot encode gives the original back rather than "data:,"');
+  ok(guards.full && guards.off && guards.full !== guards.off && !guards.none,
+    'both kinds of storage failure stand on the topbar, in their own words '
+    + '(' + guards.full + ' / ' + guards.off + ')');
+
   /* The promise the whole build exists for: one file, no network. Asserted
      two ways, because either alone is weak — the page must not reach for a
      font CDN, and the faces must actually resolve from what is embedded. */

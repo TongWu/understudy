@@ -41,9 +41,11 @@ U.store = (function () {
       if (state.storage) { state.storage = null; }
       return true;
     } catch (e) {
-      /* A private window or file:// with storage denied is not the same as a
-         full quota: nothing was ever going to persist, so there is nothing to
-         warn about. Only a quota failure means work is at risk. */
+      /* Two different sentences to say, and both have to be said. A full quota
+         means the work was persisting and has stopped; storage denied outright
+         — a private window, file:// in a browser that refuses it — means it
+         never was. The second is the more dangerous of the two precisely
+         because nothing looks wrong, so it warns as loudly as the first. */
       state.storage = /quota|exceed/i.test(String(e && (e.name + ' ' + e.message))) ? 'full' : 'off';
       return false;
     }
@@ -68,7 +70,10 @@ U.store = (function () {
     open: function (id) { state.currentId = id; state.ui.beatIndex = 0; applyBody(); save(); emit(); },
     ui: function (patch) { Object.assign(state.ui, patch); applyBody(); save(); emit(); },
     /* Mutate through here so every screen repaints and nothing is lost on reload. */
-    update: function (fn) { fn(state); save(); emit(); },
+    /* Returns whether the change reached storage, so a caller that has just
+       taken something in from outside can say so rather than reporting a
+       success the next reload would contradict. */
+    update: function (fn) { fn(state); var ok = save(); emit(); return ok; },
     subscribe: function (fn) { subs.push(fn); return function () { var i = subs.indexOf(fn); if (i >= 0) subs.splice(i, 1); }; },
     load: load, save: save, applyBody: applyBody
   };

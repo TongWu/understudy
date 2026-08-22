@@ -69,10 +69,12 @@ U.squeeze(beats, seconds)     // [{beat, from, to, skip}]，按 importance 砍
 ```js
 U.store.production()  U.store.beats()  U.store.beat()  U.store.rate()
 U.store.ui({ view, beatIndex, theme, density })   // 会写到 body dataset
-U.store.update(fn)                                // 改完自动存盘并通知
+U.store.update(fn)                                // 改完自动存盘并通知；返回是否真的存进去了
 U.store.subscribe(fn)
 ```
 **一切改动走 `ui()` 或 `update()`** —— 直接改 state 不会存盘也不会重绘。
+存盘失败会把 `state.storage` 置成 `'full'`（配额满）或 `'off'`（浏览器压根不让存），
+顶栏据此常驻一条「导出一份带走」；存成功了自动清掉。
 
 ### 视图（`03-views.js`）
 ```js

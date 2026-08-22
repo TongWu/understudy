@@ -35,6 +35,39 @@ test('a run accrues spend to the beat that is showing', () => {
   assert.equal(r.perBeat[1].spent, 4);
 });
 
+/* Between two callbacks there is up to half a second of unattributed time,
+   and both boundaries land inside that gap. Time is moved without ticking
+   here, which is exactly what a boundary arriving mid-interval looks like. */
+test('time between callbacks settles on the beat it was spent on', () => {
+  const U = load();
+  U.run.start({});
+  U.run.toggle(true);
+  U.advance(10);
+  U._t += 3000;                        // three seconds nobody has ticked yet
+  U.run.go(1);
+  U.advance(4);
+  const r = U.run.current();
+  assert.equal(r.perBeat[0].spent, 13, 'the three seconds belong to the beat that was showing');
+  assert.equal(r.perBeat[1].spent, 4, 'not to the one just walked into');
+  assert.equal(r.elapsed, 17);
+});
+
+test('pausing keeps what was spent before the pause', () => {
+  const U = load();
+  U.run.start({});
+  U.run.toggle(true);
+  U.advance(5);
+  U._t += 2000;                        // two more, still unticked
+  U.run.toggle(false);
+  assert.equal(U.run.current().perBeat[0].spent, 7);
+  assert.equal(U.run.current().elapsed, 7);
+  U._t += 60000;                       // a long pause changes nothing
+  U.run.toggle(true);
+  U.advance(3);
+  assert.equal(U.run.current().elapsed, 10);
+  assert.equal(U.run.current().perBeat[0].spent, 10);
+});
+
 test('remaining counts down inside the current beat and goes negative', () => {
   const U = load();
   U.run.start({});                      // beat 00 budget is 45s

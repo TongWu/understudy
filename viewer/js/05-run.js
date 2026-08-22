@@ -77,6 +77,11 @@ U.run = (function () {
     toggle: function (on) {
       var r = cur(); if (!r) return null;
       var want = on == null ? !r.running : !!on;
+      /* Settle up before the boundary moves. Up to half a second is sitting
+         between the last callback and now; on a pause it would be dropped, and
+         on a beat change it would be charged to the beat you just walked into
+         — which is the one number the recap exists to report. */
+      if (!want) tick();
       U.store.update(function () {
         /* Re-anchor on resume so a pause does not count as elapsed time. */
         if (want && !r.running) r.base = api._now() - r.elapsed * 1000;
@@ -94,6 +99,7 @@ U.run = (function () {
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
+      tick();
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
       var allowed = allowedIndexes();

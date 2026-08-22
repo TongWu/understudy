@@ -253,6 +253,12 @@ U.io = (function () {
      and ten of them do not fit in localStorage at all. Slides are read at slide
      size, so 1600px wide is plenty and costs about a tenth. */
   var MAX_W = 1600, QUALITY = 0.82;
+  function encode(canvas, type) {
+    try {
+      var out = canvas.toDataURL(type, QUALITY);
+      return out.indexOf('data:' + type) === 0 ? out : '';
+    } catch (e) { return ''; }          /* a tainted canvas throws instead */
+  }
   function downscale(dataUrl) {
     return new Promise(function (resolve) {
       /* Vectors are already small and rasterising one would only lose. */
@@ -266,9 +272,12 @@ U.io = (function () {
         var ctx = c.getContext('2d');
         if (!ctx) return resolve(dataUrl);
         ctx.drawImage(img, 0, 0, c.width, c.height);
-        var out = c.toDataURL('image/webp', QUALITY);
-        if (out.indexOf('data:image/webp') !== 0) out = c.toDataURL('image/jpeg', QUALITY);
-        resolve(out.length < dataUrl.length ? out : dataUrl);
+        /* A canvas past the browser's limits hands back "data:," rather than
+           throwing, and that is shorter than any real image — so the shorter
+           of the two would have been stored as the slide, and the slide would
+           be gone. Take the result only if it is actually an image. */
+        var out = encode(c, 'image/webp') || encode(c, 'image/jpeg');
+        resolve(out && out.length < dataUrl.length ? out : dataUrl);
       };
       img.onerror = function () { resolve(dataUrl); };
       img.src = dataUrl;
@@ -305,10 +314,10 @@ U.io = (function () {
         made.push(beatFromImage(list[i].name, url, start + made.length));
       });
       if (!made.length) return { added: 0, beats: [] };
-      U.store.update(function () { p.beats = (p.beats || []).concat(made); });
+      var stored = U.store.update(function () { p.beats = (p.beats || []).concat(made); });
       /* Whether it actually persisted, so the caller can say so rather than
          reporting a success the next reload would contradict. */
-      return { added: made.length, beats: made, stored: U.store.get().storage !== 'full' };
+      return { added: made.length, beats: made, stored: stored };
     });
   }
 
