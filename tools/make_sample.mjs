@@ -28,22 +28,27 @@ const GROUPS = [
 ];
 function slide(title, sub, highlight) {
   const W = 640, H = 360, x0 = 26, y0 = 84, cw = 32, ch = 19, cols = 18, rows = 11;
-  let cells = '', c = 0;
+  /* Four colour blocks and one grid overlay, rather than a rect per cell:
+     198 elements became 9, and the data URI went from ~16 KB to under 1 KB.
+     Eight of these ship inside the product. */
+  let bands = '', c = 0;
   for (const [n, fill, head] of GROUPS) {
-    for (let k = 0; k < n; k++, c++) {
-      for (let r = 0; r < rows; r++) {
-        cells += `<rect x="${x0 + c * cw}" y="${y0 + r * ch}" width="${cw - 2}" height="${ch - 2}" fill="${r ? fill : head}"/>`;
-      }
-    }
+    bands += `<rect x="${x0 + c * cw}" y="${y0 + ch}" width="${n * cw}" height="${(rows - 1) * ch}" fill="${fill}"/>`
+           + `<rect x="${x0 + c * cw}" y="${y0}" width="${n * cw}" height="${ch}" fill="${head}"/>`;
+    c += n;
   }
   const hi = highlight
     ? `<rect x="${x0 + (cols - 3) * cw - 3}" y="${y0 - 5}" width="${3 * cw + 4}" height="${rows * ch + 6}" fill="none" stroke="#B33121" stroke-width="2" rx="2"/>`
     : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
+    + `<defs><pattern id="g" width="${cw}" height="${ch}" patternUnits="userSpaceOnUse">`
+    + `<rect width="${cw}" height="${ch}" fill="none" stroke="#FBFAF7" stroke-width="2"/></pattern></defs>`
     + `<rect width="${W}" height="${H}" fill="#FBFAF7"/>`
     + `<text x="${x0}" y="42" font-family="IBM Plex Sans, sans-serif" font-size="20" font-weight="600" fill="#221E19">${title}</text>`
     + `<text x="${x0}" y="64" font-family="IBM Plex Mono, monospace" font-size="11" fill="#8C8375">${sub}</text>`
-    + cells + hi + '</svg>';
+    + bands
+    + `<rect x="${x0}" y="${y0}" width="${cols * cw}" height="${rows * ch}" fill="url(#g)"/>`
+    + hi + '</svg>';
   return 'data:image/svg+xml;base64,' + Buffer.from(svg, 'utf8').toString('base64');
 }
 

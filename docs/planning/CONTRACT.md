@@ -171,6 +171,4 @@ U.chrome.segmented(options, current, onPick)
 
 ## 6. 已知待办（不归任何人，先记着）
 
-- **字体没有内嵌**。`shell.html` 现在 `<link>` Google Fonts，离线打开会掉到后备字体。
-  v1 发布前要把 Latin 子集做成 data URI 内嵌 —— 上台那台电脑可能没网。
 - 只读分享视图 / 卡片式导出（方向 C 的归宿）尚未设计。

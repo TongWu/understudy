@@ -30,7 +30,9 @@ function chromePath() {
   const browser = await chromium.launch({ executablePath: chromePath(), args: ['--no-proxy-server'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
+  const offsite = [];
   page.on('pageerror', e => errors.push(String(e).slice(0, 160)));
+  page.on('request', r => { if (/fonts\.(googleapis|gstatic)\.com/.test(r.url())) offsite.push(r.url()); });
   await page.goto('file://' + OUT);
   await page.waitForFunction(() => window.U && window.U.store, null, { timeout: 8000 });
 
@@ -106,6 +108,17 @@ function chromePath() {
   } else {
     ok(false, 'exportHtml({returnOnly:true}) gave nothing back to reopen');
   }
+
+  /* The promise the whole build exists for: one file, no network. Asserted
+     two ways, because either alone is weak — the page must not reach for a
+     font CDN, and the faces must actually resolve from what is embedded. */
+  ok(offsite.length === 0, 'nothing is fetched from a font CDN' + (offsite.length ? ' — ' + offsite[0] : ''));
+  const faces = await page.evaluate(async () => {
+    const fams = ['Newsreader', 'IBM Plex Sans', 'IBM Plex Mono', 'IBM Plex Sans Condensed', 'Instrument Serif'];
+    await Promise.all(fams.map((f) => document.fonts.load('16px "' + f + '"')));
+    return fams.filter((f) => document.fonts.check('16px "' + f + '"'));
+  });
+  ok(faces.length === 5, 'all five families resolve offline (' + faces.length + '/5)');
 
   ok(errors.length === 0, 'no page errors across the whole sweep' + (errors.length ? ' — ' + errors[0] : ''));
   await browser.close();
