@@ -66,6 +66,24 @@ test('an attribute-bearing tag still comes through as itself', () => {
   assert.equal(U.safeHtml('<span data-k="v">t</span>'), '<span>t</span>');
 });
 
+/* The tag ends outside its quotes. Ending at the first > put the rest of the
+   attribute into the script as text — the same leak as the comparison case,
+   arriving from the other direction. */
+test('an angle bracket inside an attribute does not end the tag', () => {
+  const U = load();
+  assert.equal(U.safeHtml('<p title="a > b">hi</p>'), '<p>hi</p>');
+  assert.equal(U.safeHtml("<p title='x > y'>hi</p>"), '<p>hi</p>');
+  assert.equal(U.safeHtml('<img alt="a > b" onerror=x>keep'), 'keep');
+  assert.equal(U.safeHtml('<b class="x>y">bold</b>'), '<b>bold</b>');
+});
+
+/* A quote in prose is a quote, not the start of an attribute. */
+test('an unbalanced quote does not swallow the paragraph', () => {
+  const U = load();
+  assert.equal(U.safeHtml('a < b" > c'), 'a &lt; b" &gt; c');
+  assert.equal(U.safeHtml('<p>He said "hi > there"</p>'), '<p>He said "hi &gt; there"</p>');
+});
+
 /* Not prose either way, and a comment can carry a > of its own. */
 test('comments and doctypes go, and take no words with them', () => {
   const U = load();

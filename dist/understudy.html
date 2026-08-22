@@ -1385,6 +1385,21 @@ U.HTML_DROP = {
    stays safe when it is later joined to another string. */
 U.safeHtml = function (html) {
   function text(s) { return s.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  /* Where the tag ends: the first > that is not inside a quoted attribute.
+     Taking the first > full stop spilled title="a > b" into the script as
+     text — the same leak as before, arriving from the other direction. An
+     unbalanced quote falls back to the plain first >, so a stray " in prose
+     cannot swallow the rest of the paragraph. */
+  function tagEnd(src, from) {
+    var quote = '';
+    for (var i = from; i < src.length; i++) {
+      var ch = src.charAt(i);
+      if (quote) { if (ch === quote) quote = ''; continue; }
+      if (ch === '"' || ch === "'") { quote = ch; continue; }
+      if (ch === '>') return i;
+    }
+    return -1;
+  }
   var src = String(html == null ? '' : html), out = '', i = 0;
   while (i < src.length) {
     var lt = src.indexOf('<', i);
@@ -1397,7 +1412,8 @@ U.safeHtml = function (html) {
       i = close < 0 ? src.length : close + 3;
       continue;
     }
-    var gt = src.indexOf('>', lt);
+    var gt = tagEnd(src, lt + 1);
+    if (gt < 0) gt = src.indexOf('>', lt);
     if (gt < 0) { out += text(src.slice(lt)); break; }          /* an unfinished tag is text */
     var span = src.slice(lt, gt + 1);
     i = gt + 1;

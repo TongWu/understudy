@@ -59,6 +59,23 @@ jobs:
         run: |
           set -euo pipefail
           auth="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Deployments are serialised but not ordered. Two pushes in quick
+          # succession whose CI finishes in the other order would leave the
+          # older run publishing last, and the demo would quietly serve an
+          # older build until something else was pushed. Publish only what main
+          # is actually at; if main has moved on, the run for that commit will
+          # publish when its own CI goes green. A lookup that fails publishes
+          # rather than blocks, because a network hiccup is not a reason to
+          # skip a deploy.
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            tip="$(git ls-remote "$auth" refs/heads/main 2>/dev/null | cut -f1 || true)"
+            if [ -n "$tip" ] && [ "$tip" != "$SOURCE_SHA" ]; then
+              echo "main is at $tip — not publishing the older $SOURCE_SHA over it."
+              exit 0
+            fi
+          fi
+
           work="$(mktemp -d)"
 
           if git clone --depth 1 --branch gh-pages --single-branch "$auth" "$work" 2>/dev/null; then
