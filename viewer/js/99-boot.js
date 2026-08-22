@@ -9,7 +9,13 @@
     if (!root) return;
     var name = U.store.get().ui.view;
     var def = U.views.get(name);
-    if (!def) { U.clear(root).appendChild(U.el('div', { class: 'u-lbl', style: { padding: '24px' } }, '没有这个界面：' + name)); return; }
+    if (!def) {
+      /* Forget what was mounted, or coming back to this same view finds
+         mounted === name and leaves the apology on screen. */
+      mounted = null;
+      U.clear(root).appendChild(U.el('div', { class: 'u-lbl', style: { padding: '24px' } }, '没有这个界面：' + name));
+      return;
+    }
     if (mounted !== name) {
       U.clear(root);
       mounted = name;

@@ -164,8 +164,8 @@ U.io = (function () {
      editor's DOM belongs to another screen, and one beat per page is a shape
      no live layout has. */
   function printSheets(production) {
-    var p = production || U.store.production();
-    var beats = (p && p.beats) || [];
+    var p = production || U.store.production() || {};
+    var beats = p.beats || [];
     var head = [];
     if (p.occasion) head.push(p.occasion);
     if (p.date) head.push(String(p.date).replace('T', ' '));

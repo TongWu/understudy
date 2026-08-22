@@ -243,7 +243,15 @@
         var file = input.files && input.files[0];
         if (!file) return;
         var reader = new FileReader();
-        reader.onload = function () { U.store.update(function () { beat.slideImage = String(reader.result); }); };
+        /* Through the same downscale the deck import uses. A photo off a phone
+           is several megabytes, the whole talk lives in one localStorage key,
+           and a slide that no longer fits is a slide that silently stops every
+           later save — including the script you are typing. */
+        reader.onload = function () {
+          U.io.downscale(String(reader.result)).then(function (small) {
+            U.store.update(function () { beat.slideImage = small; });
+          });
+        };
         reader.readAsDataURL(file);
       }
     });
@@ -466,7 +474,8 @@
     long: { label: '太长', mod: 'tight' },
     term: { label: '术语', mod: null, chip: true },
     bookish: { label: '太书面', mod: 'tight' },
-    over: { label: '超预算', mod: 'over' }
+    over: { label: '超预算', mod: 'over' },
+    cueload: { label: '提词太多', mod: 'tight' }
   };
   function keyOf(f) { return f.kind + '/' + f.beatIndex + '/' + (f.snippet || f.where); }
 
@@ -505,6 +514,7 @@
             e.stopPropagation();
             if (f.fix.action === 'adopt') adopt(beatsOf()[f.beatIndex]);
             else if (f.fix.action === 'glossary') { inline = keyOf(f); paint(); }
+            else if (f.fix.action === 'pickcue') pickCue(f);
             else jump(f);
           }
         }));
@@ -523,13 +533,42 @@
   function jump(f) {
     if (f.beatIndex !== at()) U.store.ui({ beatIndex: f.beatIndex });
     if (f.paraIndex == null) return;
-    var p = refs.script.children[f.paraIndex];
+    var p = findPara(f);
     if (!p) return;
     var calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     p.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' });
     if (calm || !p.animate) return;
     var wash = getComputedStyle(refs.wrap).getPropertyValue('--wash').trim() || 'transparent';
     p.animate([{ backgroundColor: wash }, { backgroundColor: 'transparent' }], { duration: 1100, easing: 'ease-out' });
+  }
+
+  /* The checker counts paragraphs in the script's markup; these are the
+     contenteditable's own children. The two do not line up — a <br> inside one
+     <p> is two paragraphs to the checker and one child here, and an empty <p>
+     (which is exactly what a new beat starts as) is a child that the checker
+     never counted. So find the sentence, and keep the count only as a
+     fallback for the beat that has drifted since the scan. */
+  function findPara(f) {
+    var kids = refs.script.children;
+    var want = flat(f.snippet);
+    if (want) {
+      for (var i = 0; i < kids.length; i++) {
+        if (flat(kids[i].textContent).indexOf(want) >= 0) return kids[i];
+      }
+    }
+    return kids[f.paraIndex] || null;
+  }
+  function flat(s) { return String(s == null ? '' : s).replace(/\s+/g, ''); }
+
+  /* Cue overload is fixed by choosing, and choosing happens in the middle
+     column — so put the first mark under the finger rather than scrolling to
+     a paragraph that this finding does not have. */
+  function pickCue(f) {
+    if (f.beatIndex !== at()) U.store.ui({ beatIndex: f.beatIndex });
+    var first = refs.cues.querySelector('.u-ed__pick');
+    if (!first) return;
+    first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    first.focus();
   }
 
   function renderPanel(p, beats, beat, cur) {

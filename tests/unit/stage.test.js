@@ -109,6 +109,16 @@ test('an explicit tag outranks anything the text happens to share', () => {
   assert.ok(U.drawer.relevance(tagged, beats[4], beats) >= 4);
 });
 
+/* A column is a word lifted out of whatever the beat happens to say, so it
+   can be anything — including something a regular expression reads as syntax. */
+test('a column whose name is regex syntax does not take the drawer down', () => {
+  const U = load();
+  const beat = { id: 'x', n: '00', title: 'count(*)', cue: [{ lead: 'column count(*) 是聚合', say: [], notes: [] }], script: '' };
+  assert.doesNotThrow(() => U.drawer.colHit('the column count(*) is an aggregate', 'count(*)'));
+  assert.ok(U.drawer.colHit('see column count(*) here', 'count(*)'));
+  assert.doesNotThrow(() => U.drawer.rank([{ q: 'what is count(*)', a: 'a count' }], beat, [beat]));
+});
+
 test('an answer naming this beat’s column counts as relevant', () => {
   const U = load();
   const beats = U.store.beats();
@@ -216,8 +226,22 @@ test('连带 — a dropped beat names what is lost and where the line goes back'
   assert.equal(hits[0].beat.n, '08');
   assert.ok(hits[0].missing.length, 'says what nobody will cover now');
   assert.ok(hits[0].line.length > 10, 'and offers the one line to say instead');
-  assert.equal(hits[0].into.n, '09', 'into the last beat that survives');
+  assert.equal(hits[0].into.n, '09', 'into the first beat that survives after it');
   assert.equal(U.reflow.knockOn(U.reflow.plan(rest, 600).rows).length, 0, 'nothing dropped, nothing to warn about');
+});
+
+/* The case the single-drop fixture above cannot tell apart: with two beats
+   still standing after the one that goes, the make-up line belongs on the
+   next one, not at the end of the talk twenty minutes later. */
+test('the make-up line goes onto the next surviving beat, not the final one', () => {
+  const U = load();
+  const beats = U.store.beats();
+  const rows = [
+    { beat: beats[2], from: 60, to: 0, skip: true },
+    { beat: beats[3], from: 60, to: 60, skip: false },
+    { beat: beats[4], from: 60, to: 60, skip: false }
+  ];
+  assert.equal(U.reflow.knockOn(rows)[0].into.n, beats[3].n);
 });
 
 test('the last beat being the dropped one has nowhere to put the line back', () => {

@@ -18,7 +18,7 @@ viewer/css/NN-*.css        按文件名排序拼接
 viewer/js/NN-*.js          按文件名排序拼接 —— 编号就是加载顺序
 viewer/build_template.py   拼装
 dist/understudy.html       产物（提交进仓库）
-tools/extract_sample.mjs   从原型里提取样例数据
+tools/make_sample.mjs      生成样例演讲（合成内容，不含任何真实材料）
 tests/unit/*.test.js       node --test
 tests/e2e-*.js             playwright-core 驱动真实产物
 ```

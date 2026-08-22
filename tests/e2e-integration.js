@@ -70,7 +70,7 @@ function chromePath() {
     };
   });
   ok(String(keys.prompter.sort()) === 'ArrowDown,ArrowLeft,ArrowRight,Space,b,p,q,t',
-    'the prompter prints exactly its seven on-stage keys (' + keys.prompter.join(' ') + ')');
+    'the prompter prints exactly its eight on-stage keys (' + keys.prompter.join(' ') + ')');
   ok(keys.orphan === 0, 'no key is bound with a label that no footer can render');
 
   /* The arithmetic the whole product rests on, read off the shipped file. */
@@ -132,6 +132,62 @@ function chromePath() {
   ok(notes.working === 2, 'the working copy keeps your 旁批, on the beat and on the cue — it is your backup');
   ok(!notes.shared, 'the copy for somebody else carries neither');
   ok(notes.screen, 'and neither copy bakes in the screen that happened to be open');
+
+  /* Every finding the checker can raise has to arrive as something a person
+     can read and act on. A kind the panel does not know about prints its own
+     name in latin in an otherwise Chinese screen, and its button does nothing
+     — which is exactly how 提词太多 shipped until this assertion existed. */
+  const chk = await page.evaluate(() => {
+    window.U.store.ui({ view: 'editor' });
+    const tab = [...document.querySelectorAll('.u-ed__tab')].find((t) => t.textContent.indexOf('检查') === 0);
+    tab.click();
+    const kinds = [...new Set(window.U.check.scan(window.U.store.production()).map((f) => f.kind))];
+    const labels = [...document.querySelectorAll('.u-chk__top .u-pill')].map((n) => n.textContent);
+    return { kinds: kinds, raw: labels.filter((t) => /^[a-z]+$/.test(t)), n: labels.length };
+  });
+  ok(chk.kinds.length >= 3 && chk.n > 0, 'the sample raises ' + chk.kinds.length + ' kinds of finding to look at');
+  ok(chk.raw.length === 0, 'every one of them is labelled in words' + (chk.raw.length ? ' — got ' + chk.raw.join(' ') : ''));
+
+  /* The checker counts paragraphs in markup; the editor holds DOM children.
+     A <br> is two of the first and one of the second, and an empty <p> is one
+     of the second and none of the first — so the index alone lands on the
+     wrong sentence. The flash marks where it actually landed. */
+  const landed = await page.evaluate(() => {
+    window.U.store.update(() => {
+      const b = window.U.store.production().beats[0];
+      b.script = '<p>短。<br>' + 'It is a truth universally acknowledged that a sentence of this length, '
+        + 'carrying clause after clause after clause, is exactly the kind of thing this check exists to find, '
+        + 'and it keeps going well past the point where anyone could say it in one breath.</p>';
+    });
+    const tab = [...document.querySelectorAll('.u-ed__tab')].find((t) => t.textContent.indexOf('检查') === 0);
+    tab.click();
+    const long = window.U.check.scan(window.U.store.production()).find((f) => f.kind === 'long');
+    if (!long) return { why: 'the crafted paragraph did not trip the length check' };
+    const card = [...document.querySelectorAll('.u-chk__item')]
+      .find((c) => (c.querySelector('.u-chk__msg') || {}).textContent === long.message);
+    if (!card) return { why: 'the finding is not on the panel' };
+    card.click();
+    const kids = [...document.querySelectorAll('.u-ed__script > *')];
+    return {
+      paraIndex: long.paraIndex,
+      flashed: kids.findIndex((el) => el.getAnimations().length > 0),
+      holds: kids.findIndex((el) => el.textContent.includes('universally acknowledged'))
+    };
+  });
+  ok(landed.flashed >= 0 && landed.flashed === landed.holds,
+    'the check jumps to the sentence it found, not to a paragraph count that does not line up '
+    + '(flashed ' + landed.flashed + ', holds it ' + landed.holds + ', counted ' + landed.paraIndex + ')'
+    + (landed.why ? ' — ' + landed.why : ''));
+
+  /* And the button on the one that has no paragraph to jump to. */
+  const picked = await page.evaluate(() => {
+    const card = [...document.querySelectorAll('.u-chk__item')]
+      .find((c) => (c.querySelector('.u-chk__msg') || {}).textContent?.includes('提词'));
+    if (!card) return 'no cue-overload finding on screen';
+    card.querySelector('.u-chk__acts button').click();
+    return document.activeElement.className;
+  });
+  ok(/u-ed__pick/.test(picked), 'the cue-overload fix puts a mark under the finger (' + picked + ')');
 
   /* The promise the whole build exists for: one file, no network. Asserted
      two ways, because either alone is weak — the page must not reach for a

@@ -60,14 +60,14 @@ U.reflow = (function () {
   }
 
   /* What a dropped beat takes with it, and where the make-up line goes: the
-     last beat that survives after it, because that is the next time you will
+     first beat that survives after it, because that is the next time you will
      have the room's attention. */
   function knockOn(rows) {
     var out = [];
     (rows || []).forEach(function (row, i) {
       if (!row.skip) return;
       var into = null;
-      for (var j = i + 1; j < rows.length; j++) if (!rows[j].skip) { into = rows[j].beat; }
+      for (var j = i + 1; j < rows.length; j++) if (!rows[j].skip) { into = rows[j].beat; break; }
       if (!into) for (var k = i - 1; k >= 0; k--) if (!rows[k].skip) { into = rows[k].beat; break; }
       out.push({
         beat: row.beat, missing: leads(row.beat).slice(0, 2),

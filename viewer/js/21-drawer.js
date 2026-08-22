@@ -70,9 +70,18 @@ U.drawer = (function () {
     });
     return out;
   }
+  /* A column name is a word lifted out of whatever the beat happens to say, so
+     it can be anything at all — including "count(*)", which is regex syntax
+     twice over. Escaped so it cannot throw, and the word boundary is only
+     asserted on an edge that is actually a word, or a name ending in a bracket
+     could never match anything. */
   function colHit(text, col) {
-    var c = col.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp('(?:columns?|col|列)\\s*' + c + '\\b|\\b' + c + '\\s*列', 'i').test(text);
+    var raw = String(col == null ? '' : col);
+    if (!raw) return false;
+    var c = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var tail = /\w$/.test(raw) ? '\\b' : '';
+    var head = /^\w/.test(raw) ? '\\b' : '';
+    return new RegExp('(?:columns?|col|列)\\s*' + c + tail + '|' + head + c + '\\s*列', 'i').test(text);
   }
   function tagHit(tag, beat) {
     var t = String(label(tag)).toLowerCase();
@@ -97,12 +106,13 @@ U.drawer = (function () {
     return keep;
   }
 
-  function relevance(item, beat, beats) {
+  function relevance(item, beat, beats, keep) {
     if (!beat) return 0;
     var text = itemText(item), score = 0;
     (item.tags || []).forEach(function (t) { if (tagHit(t, beat)) score += 4; });
     cols(beat).forEach(function (c) { if (colHit(text, c)) score += 3; });
-    var keep = keywords(beat, beats), hits = 0;
+    var hits = 0;
+    keep = keep || keywords(beat, beats);
     Object.keys(set(tokens(text))).forEach(function (w) { if (keep[w]) hits++; });
     return score + Math.min(3, hits);
   }
@@ -111,8 +121,12 @@ U.drawer = (function () {
      they were written in. A stable sort so the list does not shuffle under the
      speaker's eyes between two presses of the same key. */
   function rank(items, beat, beats) {
+    /* One document-frequency pass for the whole list. Per item it was the
+       whole running order tokenised once per question, on a path that reruns
+       on every keystroke in the search box — while the speaker is talking. */
+    var keep = beat ? keywords(beat, beats) : {};
     return (items || []).map(function (item, i) {
-      var score = relevance(item, beat, beats);
+      var score = relevance(item, beat, beats, keep);
       return {
         item: item, index: i, score: score, related: score >= RELATED,
         asked: ((item && item.askedIn) || []).length
@@ -158,7 +172,7 @@ U.drawer = (function () {
 
   return {
     RELATED: RELATED, tokens: tokens, beatText: beatText, itemText: itemText,
-    cols: cols, keywords: keywords, relevance: relevance, rank: rank,
+    cols: cols, colHit: colHit, keywords: keywords, relevance: relevance, rank: rank,
     search: search, firstUsedIn: firstUsedIn, stamp: stamp, mark: mark, label: label
   };
 })();
@@ -260,7 +274,10 @@ U.stage.define({
         chips.appendChild(U.el('span', { class: 'u-chip', text: U.drawer.label(t) }));
       });
       U.drawer.cols(beat).forEach(function (c) {
-        if (new RegExp('(?:columns?|col|列)\\s*' + c + '\\b', 'i').test(U.drawer.itemText(it))) {
+        /* The same test that scored it. Restating the pattern here also lost
+           the escaping, so a column called "count(*)" threw out of the render
+           and took the detail pane down with it. */
+        if (U.drawer.colHit(U.drawer.itemText(it), c)) {
           chips.appendChild(U.el('span', { class: 'u-chip', text: c + ' 列' }));
         }
       });
