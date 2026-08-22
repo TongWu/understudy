@@ -1,0 +1,82 @@
+name: Deploy demo (GitHub Pages)
+
+# Publishes the app itself as the demo. There is nothing to assemble: the
+# product is one self-contained HTML file that already carries a sample talk,
+# so the site is that file served as index.html. Opening the demo and
+# double-clicking a downloaded copy are the same experience, which is the
+# point of the whole build.
+#
+# ONE-TIME SETUP: Settings -> Pages -> Source = "Deploy from a branch",
+# Branch = gh-pages / (root).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # the publish authenticates via GH_TOKEN
+
+      - name: Build the site
+        run: |
+          set -euo pipefail
+          python3 viewer/build_template.py
+          mkdir -p _site
+          cp dist/understudy.html _site/index.html
+          cp dist/understudy.html _site/understudy.html   # the stable download URL
+          touch _site/.nojekyll
+
+      - name: Publish to the gh-pages root
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          work="$(mktemp -d)"
+
+          if git clone --depth 1 --branch gh-pages --single-branch "$auth" "$work" 2>/dev/null; then
+            :
+          else
+            git clone --depth 1 "$auth" "$work"
+            git -C "$work" checkout --orphan gh-pages
+            git -C "$work" rm -rf . >/dev/null 2>&1 || true
+          fi
+          cd "$work"
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          attempt=0
+          while :; do
+            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp -a "$GITHUB_WORKSPACE/_site"/. .
+            git add -A
+            if git diff --cached --quiet; then
+              echo "gh-pages is already up to date."
+              break
+            fi
+            git commit -q -m "Deploy demo @ ${GITHUB_SHA}"
+            if git push origin gh-pages; then
+              echo "Published."
+              break
+            fi
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 5 ]; then
+              echo "::error::could not push to gh-pages after $attempt attempts"
+              exit 1
+            fi
+            git fetch --depth 1 origin gh-pages
+            git reset --hard FETCH_HEAD
+            sleep $((2 ** attempt))
+          done
