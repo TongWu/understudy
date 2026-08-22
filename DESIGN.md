@@ -57,7 +57,9 @@ Beat                       一节 = 一个提词点
     { flag?, cols[]?, lead, say? }
     flag ∈ SAY | SLOW | PAUSE | ASK | OPEN
   script            逐字稿（**强调** 标记重读）
-  notes[]           旁批：中文、只给自己看、不导出、不上台念
+  notes[]           旁批：中文、只给自己看、不导出
+                    —— **台上会显示，但永远不念出口**。它就是给台上的你看的：
+                    「说慢」「这里上次被追问」。不显示等于没有这个功能。
 
 Term                       术语表条目
   term              "DV DW Drift"

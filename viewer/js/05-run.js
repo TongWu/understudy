@@ -8,28 +8,55 @@
    seconds over". */
 U.run = (function () {
   var timer = null;
+  /* Swappable so the tests can drive time by hand; nothing else touches it. */
+  var now = function () {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  };
 
   function cur() { return U.store.get().run; }
   function beats() { return U.store.beats(); }
 
+  /* Measured against a monotonic clock rather than counted per callback. A
+     background tab is throttled to roughly one callback a minute, and the
+     speaker WILL switch to their slide software — counting invocations would
+     quietly undercount exactly the number this tool exists to report. Time
+     recovered after a stall lands on the beat that was showing, because that
+     is the beat it was spent on. */
   function tick() {
     var r = cur();
     if (!r || !r.running) return;
+    var secs = Math.max(0, Math.round((api._now() - r.base) / 1000));
+    var gained = secs - r.elapsed;
+    if (gained <= 0) return;
     U.store.update(function () {
-      r.elapsed += 1;
+      r.elapsed = secs;
       var slot = r.perBeat[r.beatIndex];
-      if (slot) slot.spent += 1;
+      if (slot) slot.spent += gained;
     });
+  }
+
+  /* Which beats this run covers. A partial rehearsal that still let the
+     arrows wander into unrehearsed beats would be a full rehearsal that
+     happens to start in the middle. */
+  function allowedIndexes() {
+    var r = cur(), bs = beats();
+    var ids = r && r.only;
+    if (!ids || !ids.length) return null;
+    var out = [];
+    bs.forEach(function (b, i) { if (ids.indexOf(b.id) >= 0) out.push(i); });
+    return out.length ? out : null;
   }
   /* Wall-clock ticking is a browser concern. Under node the tests drive
      _tick() by hand, and an interval there would just hold the process open. */
   function arm(on) {
     if (typeof window === 'undefined') return;
     if (timer) { clearInterval(timer); timer = null; }
-    if (on) timer = setInterval(tick, 1000);
+    /* Twice a second: the clock is read, not counted, so a late callback
+       costs nothing but a slightly stale countdown. */
+    if (on) timer = setInterval(tick, 500);
   }
 
-  return {
+  var api = {
     /* difficulty: 1 照读 · 2 只看提词 · 3 冷启动 · 4 有人打断 */
     start: function (opts) {
       opts = opts || {};
@@ -40,7 +67,7 @@ U.run = (function () {
           difficulty: opts.difficulty || 1,
           target: opts.target || (p && p.target) || 0,
           recording: !!opts.recording,
-          elapsed: 0, running: false, beatIndex: 0, finished: false,
+          elapsed: 0, running: false, beatIndex: 0, finished: false, base: 0,
           perBeat: beats().map(function (b) { return { beat: b.id, spent: 0 }; })
         };
         s.ui.beatIndex = 0;
@@ -49,15 +76,32 @@ U.run = (function () {
     },
     toggle: function (on) {
       var r = cur(); if (!r) return null;
-      U.store.update(function () { r.running = on == null ? !r.running : !!on; });
+      var want = on == null ? !r.running : !!on;
+      U.store.update(function () {
+        /* Re-anchor on resume so a pause does not count as elapsed time. */
+        if (want && !r.running) r.base = api._now() - r.elapsed * 1000;
+        r.running = want;
+      });
       arm(r.running);
       return r;
     },
+    /* True when this beat is part of the run. Navigation consults it. */
+    allows: function (index) {
+      var allowed = allowedIndexes();
+      return !allowed || allowed.indexOf(index) >= 0;
+    },
+    allowed: allowedIndexes,
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
+      var allowed = allowedIndexes();
+      if (allowed && allowed.indexOf(i) < 0) {
+        i = allowed.reduce(function (best, k) {
+          return Math.abs(k - index) < Math.abs(best - index) ? k : best;
+        }, allowed[0]);
+      }
       U.store.update(function (s) { s.ui.beatIndex = i; if (r) r.beatIndex = i; });
       return i;
     },
@@ -98,6 +142,7 @@ U.run = (function () {
     },
     current: cur,
     /* Tests drive the clock by hand rather than waiting on wall time. */
-    _tick: tick
+    _tick: tick, _now: now
   };
+  return api;
 })();

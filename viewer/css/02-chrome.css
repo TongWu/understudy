@@ -10,3 +10,7 @@
 .u-seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
 .u-seg__b{padding:6px 10px;border:0;background:var(--card);color:var(--ink-2);cursor:pointer;font:inherit}
 .u-seg__b[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.u-top__warn{font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.05em;
+  padding:6px 11px;border:1px solid var(--over-bd);border-radius:3px;
+  background:var(--over-bg);color:var(--over);cursor:pointer}
+.u-top__warn:hover{background:var(--over);color:var(--paper)}

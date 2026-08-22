@@ -401,7 +401,7 @@
     body.appendChild(U.el('section', { class: 'u-ed__sec' }, [
       U.el('div', { class: 'u-ed__sechead' }, [
         U.el('span', { class: 'u-lbl u-ed__lbl--over' }, '旁批'),
-        U.el('span', { class: 'u-mono u-ed__tiny' }, '只给自己看 · 不导出 · 不上台念')
+        U.el('span', { class: 'u-mono u-ed__tiny' }, '只给自己看 · 不导出 · 台上只看不念')
       ]),
       notes.length
         ? U.el('div', { class: 'u-ed__notes' }, notes.map(function (n) {

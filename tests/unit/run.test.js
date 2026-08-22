@@ -13,6 +13,12 @@ function load() {
   const run = (f) => (0, eval)(require('fs').readFileSync(path.join(__dirname, '../../viewer/js', f), 'utf8'));
   run('01-store.js'); run('02-sample.js'); run('05-run.js');
   U.store.put(U.sample());
+  /* The clock is monotonic now, so the tests own it outright rather than
+     counting callbacks — which is also the only way to reproduce a throttled
+     tab, the case that made counting wrong in the first place. */
+  U._t = 0;
+  U.run._now = function () { return U._t; };
+  U.advance = function (seconds) { U._t += seconds * 1000; U.run._tick(); };
   return U;
 }
 
@@ -20,9 +26,9 @@ test('a run accrues spend to the beat that is showing', () => {
   const U = load();
   U.run.start({ mode: 'rehearse', difficulty: 3 });
   U.run.toggle(true);
-  for (let i = 0; i < 10; i++) U.run._tick();
+  U.advance(10);
   U.run.go(1);
-  for (let i = 0; i < 4; i++) U.run._tick();
+  U.advance(4);
   const r = U.run.current();
   assert.equal(r.elapsed, 14);
   assert.equal(r.perBeat[0].spent, 10);
@@ -33,9 +39,9 @@ test('remaining counts down inside the current beat and goes negative', () => {
   const U = load();
   U.run.start({});                      // beat 00 budget is 45s
   U.run.toggle(true);
-  for (let i = 0; i < 45; i++) U.run._tick();
+  U.advance(45);
   assert.equal(U.run.remaining(), 0);
-  U.run._tick();
+  U.advance(1);
   assert.equal(U.run.remaining(), -1);
 });
 
@@ -43,12 +49,12 @@ test('drift stays put mid-beat and only moves when a beat is finished', () => {
   const U = load();
   U.run.start({});
   U.run.toggle(true);
-  for (let i = 0; i < 30; i++) U.run._tick();
+  U.advance(30);
   assert.equal(U.run.drift(), 30, 'nothing finished yet, so all of it is drift-from-zero');
   U.run.go(1);
   const atStart = U.run.drift();        // 30 elapsed − 45 budgeted for beat 00
   assert.equal(atStart, -15, 'finished beat 00 fifteen seconds early');
-  for (let i = 0; i < 5; i++) U.run._tick();
+  U.advance(5);
   assert.equal(U.run.drift(), -10, 'drift moves with elapsed, not with a re-guess');
 });
 
@@ -57,7 +63,7 @@ test('finish appends a run record the recap can read', () => {
   const before = U.store.production().runs.length;
   U.run.start({ mode: 'rehearse', difficulty: 4 });
   U.run.toggle(true);
-  for (let i = 0; i < 12; i++) U.run._tick();
+  U.advance(12);
   const rec = U.run.finish();
   assert.equal(U.store.production().runs.length, before + 1);
   assert.equal(rec.total, 12);
@@ -70,6 +76,56 @@ test('scriptFraction is where the ↓ key lands you', () => {
   U.run.start({});
   U.run.go(4);                          // beat 04, budget 150s
   U.run.toggle(true);
-  for (let i = 0; i < 72; i++) U.run._tick();
+  U.advance(72);
   assert.ok(Math.abs(U.run.scriptFraction() - 0.48) < 0.005);
+});
+
+test('a throttled tab does not lose the time it was throttled for', () => {
+  const U = load();
+  U.run.start({});
+  U.run.go(4);
+  U.run.toggle(true);
+  /* One callback after ninety seconds of wall time — what a background tab
+     actually delivers while the speaker is in their slide software. Counting
+     invocations would have recorded one second. */
+  U.advance(90);
+  assert.equal(U.run.current().elapsed, 90);
+  assert.equal(U.run.current().perBeat[4].spent, 90, 'the beat that was showing gets the time');
+});
+
+test('pausing does not accrue, and resuming does not backfill the pause', () => {
+  const U = load();
+  U.run.start({});
+  U.run.toggle(true);
+  U.advance(10);
+  U.run.toggle(false);
+  U._t += 300 * 1000;            /* five minutes of coffee */
+  U.run.toggle(true);
+  U.advance(5);
+  assert.equal(U.run.current().elapsed, 15);
+});
+
+test('a partial rehearsal cannot wander outside the beats it covers', () => {
+  const U = load();
+  const beats = U.store.beats();
+  U.run.start({});
+  U.store.update((s) => { s.run.only = [beats[4].id, beats[5].id]; });
+  assert.equal(U.run.allows(4), true);
+  assert.equal(U.run.allows(0), false);
+  U.run.go(0);
+  assert.equal(U.store.get().ui.beatIndex, 4, 'snaps into the rehearsed set rather than including a beat you skipped');
+  U.run.go(9);
+  assert.equal(U.store.get().ui.beatIndex, 5);
+});
+
+test('finishing records the run so the recap has something to read', () => {
+  const U = load();
+  const before = U.store.production().runs.length;
+  U.run.start({ mode: 'rehearse', difficulty: 3 });
+  U.run.toggle(true);
+  U.advance(42);
+  const rec = U.run.finish();
+  assert.equal(rec.total, 42);
+  assert.equal(U.store.production().runs.length, before + 1);
+  assert.equal(U.run.current().finished, true, 'so the recorder knows to stop');
 });

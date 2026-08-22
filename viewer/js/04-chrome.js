@@ -43,6 +43,12 @@ U.chrome = (function () {
         opts.crumb ? U.el('span', { class: 'u-mono u-top__crumb' }, '/ ' + opts.crumb) : null
       ]),
       U.el('div', { style: { flex: '1' } }),
+      /* Not a toast. If the browser cannot hold the work, that has to stay on
+         screen until the user has a file in hand. */
+      U.store.get().storage === 'full' ? U.el('button', {
+        class: 'u-top__warn', title: '浏览器存不下了 —— 导出一份带走',
+        onclick: function () { if (U.io) U.io.exportHtml(); }
+      }, '浏览器存不下了 · 导出一份带走') : null,
       opts.middle || null,
       opts.switches === false ? null : switches(),
       U.el('div', { class: 'u-top__actions' }, opts.actions || [])

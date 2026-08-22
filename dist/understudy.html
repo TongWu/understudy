@@ -224,6 +224,10 @@ a:hover{color:var(--ink)}
 .u-seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
 .u-seg__b{padding:6px 10px;border:0;background:var(--card);color:var(--ink-2);cursor:pointer;font:inherit}
 .u-seg__b[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.u-top__warn{font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.05em;
+  padding:6px 11px;border:1px solid var(--over-bd);border-radius:3px;
+  background:var(--over-bg);color:var(--over);cursor:pointer}
+.u-top__warn:hover{background:var(--over);color:var(--paper)}
 
 /* ==== css/10-editor.css ==== */
 /* Editor — one DOM, four evaluations of it. Every colour comes from the token
@@ -1445,7 +1449,8 @@ U.store = (function () {
     productions: {},
     currentId: null,
     ui: { view: 'library', beatIndex: 0, theme: 'paper', density: 'compact' },
-    run: null            /* set while rehearsing or on stage; see 30-* */
+    run: null,           /* set while rehearsing or on stage; see 30-* */
+    storage: null        /* 'full' once a write was refused for quota */
   };
   var subs = [];
 
@@ -1467,9 +1472,22 @@ U.store = (function () {
     b.dataset.density = state.ui.density;
     b.dataset.view = state.ui.view;
   }
+  /* Returns whether the write landed. Swallowing the failure was the worst of
+     both worlds: the screen said the slides were added, the user kept working,
+     and a reload threw all of it away. The product's real save is the exported
+     file, so the honest thing is to say storage is full and point at it. */
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ productions: state.productions, currentId: state.currentId, ui: state.ui })); }
-    catch (e) { /* private window, file:// with storage blocked — keep going */ }
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ productions: state.productions, currentId: state.currentId, ui: state.ui }));
+      if (state.storage) { state.storage = null; }
+      return true;
+    } catch (e) {
+      /* A private window or file:// with storage denied is not the same as a
+         full quota: nothing was ever going to persist, so there is nothing to
+         warn about. Only a quota failure means work is at risk. */
+      state.storage = /quota|exceed/i.test(String(e && (e.name + ' ' + e.message))) ? 'full' : 'off';
+      return false;
+    }
   }
   function load() {
     try {
@@ -2574,6 +2592,12 @@ U.chrome = (function () {
         opts.crumb ? U.el('span', { class: 'u-mono u-top__crumb' }, '/ ' + opts.crumb) : null
       ]),
       U.el('div', { style: { flex: '1' } }),
+      /* Not a toast. If the browser cannot hold the work, that has to stay on
+         screen until the user has a file in hand. */
+      U.store.get().storage === 'full' ? U.el('button', {
+        class: 'u-top__warn', title: '浏览器存不下了 —— 导出一份带走',
+        onclick: function () { if (U.io) U.io.exportHtml(); }
+      }, '浏览器存不下了 · 导出一份带走') : null,
       opts.middle || null,
       opts.switches === false ? null : switches(),
       U.el('div', { class: 'u-top__actions' }, opts.actions || [])
@@ -2593,28 +2617,55 @@ U.chrome = (function () {
    seconds over". */
 U.run = (function () {
   var timer = null;
+  /* Swappable so the tests can drive time by hand; nothing else touches it. */
+  var now = function () {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  };
 
   function cur() { return U.store.get().run; }
   function beats() { return U.store.beats(); }
 
+  /* Measured against a monotonic clock rather than counted per callback. A
+     background tab is throttled to roughly one callback a minute, and the
+     speaker WILL switch to their slide software — counting invocations would
+     quietly undercount exactly the number this tool exists to report. Time
+     recovered after a stall lands on the beat that was showing, because that
+     is the beat it was spent on. */
   function tick() {
     var r = cur();
     if (!r || !r.running) return;
+    var secs = Math.max(0, Math.round((api._now() - r.base) / 1000));
+    var gained = secs - r.elapsed;
+    if (gained <= 0) return;
     U.store.update(function () {
-      r.elapsed += 1;
+      r.elapsed = secs;
       var slot = r.perBeat[r.beatIndex];
-      if (slot) slot.spent += 1;
+      if (slot) slot.spent += gained;
     });
+  }
+
+  /* Which beats this run covers. A partial rehearsal that still let the
+     arrows wander into unrehearsed beats would be a full rehearsal that
+     happens to start in the middle. */
+  function allowedIndexes() {
+    var r = cur(), bs = beats();
+    var ids = r && r.only;
+    if (!ids || !ids.length) return null;
+    var out = [];
+    bs.forEach(function (b, i) { if (ids.indexOf(b.id) >= 0) out.push(i); });
+    return out.length ? out : null;
   }
   /* Wall-clock ticking is a browser concern. Under node the tests drive
      _tick() by hand, and an interval there would just hold the process open. */
   function arm(on) {
     if (typeof window === 'undefined') return;
     if (timer) { clearInterval(timer); timer = null; }
-    if (on) timer = setInterval(tick, 1000);
+    /* Twice a second: the clock is read, not counted, so a late callback
+       costs nothing but a slightly stale countdown. */
+    if (on) timer = setInterval(tick, 500);
   }
 
-  return {
+  var api = {
     /* difficulty: 1 照读 · 2 只看提词 · 3 冷启动 · 4 有人打断 */
     start: function (opts) {
       opts = opts || {};
@@ -2625,7 +2676,7 @@ U.run = (function () {
           difficulty: opts.difficulty || 1,
           target: opts.target || (p && p.target) || 0,
           recording: !!opts.recording,
-          elapsed: 0, running: false, beatIndex: 0, finished: false,
+          elapsed: 0, running: false, beatIndex: 0, finished: false, base: 0,
           perBeat: beats().map(function (b) { return { beat: b.id, spent: 0 }; })
         };
         s.ui.beatIndex = 0;
@@ -2634,15 +2685,32 @@ U.run = (function () {
     },
     toggle: function (on) {
       var r = cur(); if (!r) return null;
-      U.store.update(function () { r.running = on == null ? !r.running : !!on; });
+      var want = on == null ? !r.running : !!on;
+      U.store.update(function () {
+        /* Re-anchor on resume so a pause does not count as elapsed time. */
+        if (want && !r.running) r.base = api._now() - r.elapsed * 1000;
+        r.running = want;
+      });
       arm(r.running);
       return r;
     },
+    /* True when this beat is part of the run. Navigation consults it. */
+    allows: function (index) {
+      var allowed = allowedIndexes();
+      return !allowed || allowed.indexOf(index) >= 0;
+    },
+    allowed: allowedIndexes,
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
+      var allowed = allowedIndexes();
+      if (allowed && allowed.indexOf(i) < 0) {
+        i = allowed.reduce(function (best, k) {
+          return Math.abs(k - index) < Math.abs(best - index) ? k : best;
+        }, allowed[0]);
+      }
       U.store.update(function (s) { s.ui.beatIndex = i; if (r) r.beatIndex = i; });
       return i;
     },
@@ -2683,8 +2751,9 @@ U.run = (function () {
     },
     current: cur,
     /* Tests drive the clock by hand rather than waiting on wall time. */
-    _tick: tick
+    _tick: tick, _now: now
   };
+  return api;
 })();
 
 /* ==== js/10-editor.js ==== */
@@ -3091,7 +3160,7 @@ U.run = (function () {
     body.appendChild(U.el('section', { class: 'u-ed__sec' }, [
       U.el('div', { class: 'u-ed__sechead' }, [
         U.el('span', { class: 'u-lbl u-ed__lbl--over' }, '旁批'),
-        U.el('span', { class: 'u-mono u-ed__tiny' }, '只给自己看 · 不导出 · 不上台念')
+        U.el('span', { class: 'u-mono u-ed__tiny' }, '只给自己看 · 不导出 · 台上只看不念')
       ]),
       notes.length
         ? U.el('div', { class: 'u-ed__notes' }, notes.map(function (n) {
@@ -3654,15 +3723,34 @@ U.stage = (function () {
 U.prompter = (function () {
   /* Beats a re-plan struck out are stepped over rather than counted down. */
   function skipped(b) { return !!(b && b.skipped); }
-  function nextIndex(i, dir) {
-    var beats = U.store.beats(), j = i + dir;
-    while (j > 0 && j < beats.length - 1 && skipped(beats[j])) j += dir;
-    return Math.max(0, Math.min(beats.length - 1, j));
+  /* A beat is reachable if a reallocation did not drop it and the run
+     actually covers it — a partial rehearsal must not wander into beats the
+     speaker chose not to practise. */
+  function playable(beat, index) {
+    return !skipped(beat) && (!U.run.allows || U.run.allows(index));
   }
-  function nextBeat(i) {
+  /* null when there is nothing that way. The caller decides what the end of a
+     run means, which is not the same as clamping back onto the last beat. */
+  function step(i, dir) {
     var beats = U.store.beats();
-    for (var j = i + 1; j < beats.length; j++) if (!skipped(beats[j])) return beats[j];
+    for (var j = i + dir; j >= 0 && j < beats.length; j += dir) {
+      if (playable(beats[j], j)) return j;
+    }
     return null;
+  }
+  function nextIndex(i, dir) { var j = step(i, dir); return j == null ? i : j; }
+  function nextBeat(i) { var j = step(i, 1); return j == null ? null : U.store.beats()[j]; }
+  /* The end of the run is the only moment the speaker actually stops, so it is
+     the only place that can record one. Without it a finished rehearsal never
+     reached the history, the recap stayed on the previous run, and the
+     microphone kept listening. */
+  function finishRun() {
+    var r = U.run.current();
+    if (!r || r.finished) return null;
+    U.run.toggle(false);
+    var record = U.run.finish();
+    U.views.show(r.mode === 'live' ? 'debrief' : 'recap');
+    return record;
   }
   /* The pacing word comes first and the colour second — the number is read
      from two metres away, sometimes by someone who cannot separate the hues. */
@@ -3680,7 +3768,8 @@ U.prompter = (function () {
     return '';
   }
   return {
-    skipped: skipped, nextIndex: nextIndex, nextBeat: nextBeat,
+    skipped: skipped, playable: playable, step: step, finishRun: finishRun,
+    nextIndex: nextIndex, nextBeat: nextBeat,
     drift: drift, remainTone: remainTone,
     LAST_MINUTE: 60
   };
@@ -3828,7 +3917,10 @@ U.views.register('prompter', {
       });
       var nb = U.prompter.nextBeat(i);
       ui.nextN.textContent = nb ? nb.n : '';
-      ui.nextTitle.textContent = nb ? nb.title : '这是最后一节';
+      /* Say what the arrow does here, or the end of the run is a key that is
+         bound and printed nowhere — the thing the key registry exists to stop. */
+      ui.nextTitle.textContent = nb ? nb.title
+        : '这是最后一节 · 按 → 结束，去' + (((U.run.current() || {}).mode === 'live') ? '回填' : '复盘');
       ui.nextBudget.textContent = nb ? U.fmt(nb.budget) : '';
     }
 
@@ -3841,10 +3933,13 @@ U.views.register('prompter', {
    them is bound here and nowhere else, and the footer is rendered from this
    table rather than from a hand-written list. */
 U.stage.bindTop('ArrowLeft', '换节', function () {
-  U.run.go(U.prompter.nextIndex(U.store.get().ui.beatIndex, -1));
+  var j = U.prompter.step(U.store.get().ui.beatIndex, -1);
+  if (j != null) U.run.go(j);
 }, 10);
 U.stage.bindTop('ArrowRight', '换节', function () {
-  U.run.go(U.prompter.nextIndex(U.store.get().ui.beatIndex, 1));
+  var j = U.prompter.step(U.store.get().ui.beatIndex, 1);
+  if (j != null) { U.run.go(j); return; }
+  U.prompter.finishRun();
 }, 11);
 U.stage.bindTop('Space', '计时', function () { U.run.toggle(); }, 20);
 U.stage.bindTop('ArrowDown', '看讲稿', function () { U.stage.show('panic'); }, 30);
@@ -7393,6 +7488,32 @@ U.io = (function () {
     });
   }
 
+  /* A phone photo or a retina screen-grab is several megabytes as a data URL,
+     and ten of them do not fit in localStorage at all. Slides are read at slide
+     size, so 1600px wide is plenty and costs about a tenth. */
+  var MAX_W = 1600, QUALITY = 0.82;
+  function downscale(dataUrl) {
+    return new Promise(function (resolve) {
+      /* Vectors are already small and rasterising one would only lose. */
+      if (/^data:image\/svg/.test(dataUrl) || typeof document === 'undefined') return resolve(dataUrl);
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h || w <= MAX_W) return resolve(dataUrl);
+        var c = document.createElement('canvas');
+        c.width = MAX_W; c.height = Math.round(h * MAX_W / w);
+        var ctx = c.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        var out = c.toDataURL('image/webp', QUALITY);
+        if (out.indexOf('data:image/webp') !== 0) out = c.toDataURL('image/jpeg', QUALITY);
+        resolve(out.length < dataUrl.length ? out : dataUrl);
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+
   function beatFromImage(name, dataUrl, index) {
     return {
       id: 'b' + Date.now().toString(36) + '-' + index,
@@ -7412,6 +7533,8 @@ U.io = (function () {
     list.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true }); });
     if (!list.length) return Promise.resolve({ added: 0, beats: [] });
     return Promise.all(list.map(readDataUrl)).then(function (urls) {
+      return Promise.all(urls.map(function (u) { return u ? downscale(u) : Promise.resolve(''); }));
+    }).then(function (urls) {
       var p = U.store.production();
       if (!p) return { added: 0, beats: [] };
       var start = (p.beats || []).length;
@@ -7422,7 +7545,9 @@ U.io = (function () {
       });
       if (!made.length) return { added: 0, beats: [] };
       U.store.update(function () { p.beats = (p.beats || []).concat(made); });
-      return { added: made.length, beats: made };
+      /* Whether it actually persisted, so the caller can say so rather than
+         reporting a success the next reload would contradict. */
+      return { added: made.length, beats: made, stored: U.store.get().storage !== 'full' };
     });
   }
 

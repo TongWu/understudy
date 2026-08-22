@@ -146,15 +146,34 @@ U.stage = (function () {
 U.prompter = (function () {
   /* Beats a re-plan struck out are stepped over rather than counted down. */
   function skipped(b) { return !!(b && b.skipped); }
-  function nextIndex(i, dir) {
-    var beats = U.store.beats(), j = i + dir;
-    while (j > 0 && j < beats.length - 1 && skipped(beats[j])) j += dir;
-    return Math.max(0, Math.min(beats.length - 1, j));
+  /* A beat is reachable if a reallocation did not drop it and the run
+     actually covers it — a partial rehearsal must not wander into beats the
+     speaker chose not to practise. */
+  function playable(beat, index) {
+    return !skipped(beat) && (!U.run.allows || U.run.allows(index));
   }
-  function nextBeat(i) {
+  /* null when there is nothing that way. The caller decides what the end of a
+     run means, which is not the same as clamping back onto the last beat. */
+  function step(i, dir) {
     var beats = U.store.beats();
-    for (var j = i + 1; j < beats.length; j++) if (!skipped(beats[j])) return beats[j];
+    for (var j = i + dir; j >= 0 && j < beats.length; j += dir) {
+      if (playable(beats[j], j)) return j;
+    }
     return null;
+  }
+  function nextIndex(i, dir) { var j = step(i, dir); return j == null ? i : j; }
+  function nextBeat(i) { var j = step(i, 1); return j == null ? null : U.store.beats()[j]; }
+  /* The end of the run is the only moment the speaker actually stops, so it is
+     the only place that can record one. Without it a finished rehearsal never
+     reached the history, the recap stayed on the previous run, and the
+     microphone kept listening. */
+  function finishRun() {
+    var r = U.run.current();
+    if (!r || r.finished) return null;
+    U.run.toggle(false);
+    var record = U.run.finish();
+    U.views.show(r.mode === 'live' ? 'debrief' : 'recap');
+    return record;
   }
   /* The pacing word comes first and the colour second — the number is read
      from two metres away, sometimes by someone who cannot separate the hues. */
@@ -172,7 +191,8 @@ U.prompter = (function () {
     return '';
   }
   return {
-    skipped: skipped, nextIndex: nextIndex, nextBeat: nextBeat,
+    skipped: skipped, playable: playable, step: step, finishRun: finishRun,
+    nextIndex: nextIndex, nextBeat: nextBeat,
     drift: drift, remainTone: remainTone,
     LAST_MINUTE: 60
   };
@@ -320,7 +340,10 @@ U.views.register('prompter', {
       });
       var nb = U.prompter.nextBeat(i);
       ui.nextN.textContent = nb ? nb.n : '';
-      ui.nextTitle.textContent = nb ? nb.title : '这是最后一节';
+      /* Say what the arrow does here, or the end of the run is a key that is
+         bound and printed nowhere — the thing the key registry exists to stop. */
+      ui.nextTitle.textContent = nb ? nb.title
+        : '这是最后一节 · 按 → 结束，去' + (((U.run.current() || {}).mode === 'live') ? '回填' : '复盘');
       ui.nextBudget.textContent = nb ? U.fmt(nb.budget) : '';
     }
 
@@ -333,10 +356,13 @@ U.views.register('prompter', {
    them is bound here and nowhere else, and the footer is rendered from this
    table rather than from a hand-written list. */
 U.stage.bindTop('ArrowLeft', '换节', function () {
-  U.run.go(U.prompter.nextIndex(U.store.get().ui.beatIndex, -1));
+  var j = U.prompter.step(U.store.get().ui.beatIndex, -1);
+  if (j != null) U.run.go(j);
 }, 10);
 U.stage.bindTop('ArrowRight', '换节', function () {
-  U.run.go(U.prompter.nextIndex(U.store.get().ui.beatIndex, 1));
+  var j = U.prompter.step(U.store.get().ui.beatIndex, 1);
+  if (j != null) { U.run.go(j); return; }
+  U.prompter.finishRun();
 }, 11);
 U.stage.bindTop('Space', '计时', function () { U.run.toggle(); }, 20);
 U.stage.bindTop('ArrowDown', '看讲稿', function () { U.stage.show('panic'); }, 30);

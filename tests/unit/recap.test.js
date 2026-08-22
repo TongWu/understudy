@@ -17,6 +17,10 @@ function load() {
   run('01-store.js'); run('02-sample.js'); run('03-views.js'); run('05-run.js');
   run('30-rehearsal.js'); run('31-recap.js');
   U.store.put(U.sample());
+  /* The clock is monotonic now, so drive it rather than counting callbacks. */
+  U._t = 0;
+  U.run._now = function () { return U._t; };
+  U.advance = function (seconds) { U._t += seconds * 1000; U.run._tick(); };
   return U;
 }
 
@@ -240,9 +244,9 @@ test('a beat with an empty slot did not happen — it is not a beat you finished
   // still carries slots for 03…09.
   U.run.start({ mode: 'rehearse', difficulty: 2 });
   U.run.toggle(true);
-  for (let i = 0; i < 50; i++) U.run._tick();
-  U.run.go(1); for (let i = 0; i < 110; i++) U.run._tick();
-  U.run.go(2); for (let i = 0; i < 70; i++) U.run._tick();
+  U.advance(50);
+  U.run.go(1); U.advance(110);
+  U.run.go(2); U.advance(70);
   const rec = U.run.finish();
 
   const rows = U.recap.beatRows(rec, beats);

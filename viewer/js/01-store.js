@@ -8,7 +8,8 @@ U.store = (function () {
     productions: {},
     currentId: null,
     ui: { view: 'library', beatIndex: 0, theme: 'paper', density: 'compact' },
-    run: null            /* set while rehearsing or on stage; see 30-* */
+    run: null,           /* set while rehearsing or on stage; see 30-* */
+    storage: null        /* 'full' once a write was refused for quota */
   };
   var subs = [];
 
@@ -30,9 +31,22 @@ U.store = (function () {
     b.dataset.density = state.ui.density;
     b.dataset.view = state.ui.view;
   }
+  /* Returns whether the write landed. Swallowing the failure was the worst of
+     both worlds: the screen said the slides were added, the user kept working,
+     and a reload threw all of it away. The product's real save is the exported
+     file, so the honest thing is to say storage is full and point at it. */
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ productions: state.productions, currentId: state.currentId, ui: state.ui })); }
-    catch (e) { /* private window, file:// with storage blocked — keep going */ }
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ productions: state.productions, currentId: state.currentId, ui: state.ui }));
+      if (state.storage) { state.storage = null; }
+      return true;
+    } catch (e) {
+      /* A private window or file:// with storage denied is not the same as a
+         full quota: nothing was ever going to persist, so there is nothing to
+         warn about. Only a quota failure means work is at risk. */
+      state.storage = /quota|exceed/i.test(String(e && (e.name + ' ' + e.message))) ? 'full' : 'off';
+      return false;
+    }
   }
   function load() {
     try {

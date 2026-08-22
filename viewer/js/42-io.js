@@ -228,6 +228,32 @@ U.io = (function () {
     });
   }
 
+  /* A phone photo or a retina screen-grab is several megabytes as a data URL,
+     and ten of them do not fit in localStorage at all. Slides are read at slide
+     size, so 1600px wide is plenty and costs about a tenth. */
+  var MAX_W = 1600, QUALITY = 0.82;
+  function downscale(dataUrl) {
+    return new Promise(function (resolve) {
+      /* Vectors are already small and rasterising one would only lose. */
+      if (/^data:image\/svg/.test(dataUrl) || typeof document === 'undefined') return resolve(dataUrl);
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h || w <= MAX_W) return resolve(dataUrl);
+        var c = document.createElement('canvas');
+        c.width = MAX_W; c.height = Math.round(h * MAX_W / w);
+        var ctx = c.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        var out = c.toDataURL('image/webp', QUALITY);
+        if (out.indexOf('data:image/webp') !== 0) out = c.toDataURL('image/jpeg', QUALITY);
+        resolve(out.length < dataUrl.length ? out : dataUrl);
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+
   function beatFromImage(name, dataUrl, index) {
     return {
       id: 'b' + Date.now().toString(36) + '-' + index,
@@ -247,6 +273,8 @@ U.io = (function () {
     list.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true }); });
     if (!list.length) return Promise.resolve({ added: 0, beats: [] });
     return Promise.all(list.map(readDataUrl)).then(function (urls) {
+      return Promise.all(urls.map(function (u) { return u ? downscale(u) : Promise.resolve(''); }));
+    }).then(function (urls) {
       var p = U.store.production();
       if (!p) return { added: 0, beats: [] };
       var start = (p.beats || []).length;
@@ -257,7 +285,9 @@ U.io = (function () {
       });
       if (!made.length) return { added: 0, beats: [] };
       U.store.update(function () { p.beats = (p.beats || []).concat(made); });
-      return { added: made.length, beats: made };
+      /* Whether it actually persisted, so the caller can say so rather than
+         reporting a success the next reload would contradict. */
+      return { added: made.length, beats: made, stored: U.store.get().storage !== 'full' };
     });
   }
 
