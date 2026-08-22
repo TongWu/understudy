@@ -25,9 +25,11 @@ function chromePath() {
   }
 }
 
+let browser;
+
 (async () => {
   execFileSync('python3', [path.join(ROOT, 'viewer', 'build_template.py')], { stdio: 'pipe' });
-  const browser = await chromium.launch({ executablePath: chromePath(), args: ['--no-proxy-server'] });
+  browser = await chromium.launch({ executablePath: chromePath(), args: ['--no-proxy-server'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   const offsite = [];
@@ -201,7 +203,11 @@ function chromePath() {
   ok(faces.length === 5, 'all five families resolve offline (' + faces.length + '/5)');
 
   ok(errors.length === 0, 'no page errors across the whole sweep' + (errors.length ? ' — ' + errors[0] : ''));
-  await browser.close();
-  if (failures) { console.log('\n' + failures + ' failure(s)'); process.exit(1); }
-  console.log('\nintegration clean');
-})();
+  if (failures) { console.log('\n' + failures + ' failure(s)'); process.exitCode = 1; }
+  else console.log('\nintegration clean');
+})()
+  /* Whatever happens above, the browser gets closed and the reason gets
+     printed. Closing only on the success path left an orphan Chromium on
+     the runner and reported the failure as an unhandled rejection. */
+  .catch((e) => { console.error(e); process.exitCode = 1; })
+  .finally(() => browser && browser.close());

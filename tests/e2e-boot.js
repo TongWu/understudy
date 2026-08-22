@@ -25,9 +25,11 @@ function chromePath() {
   return undefined;   /* let playwright-core resolve from its own registry */
 }
 
+let browser;
+
 (async () => {
   execFileSync('python3', [path.join(ROOT, 'viewer', 'build_template.py')], { stdio: 'pipe' });
-  const browser = await chromium.launch({ executablePath: chromePath(), args: ['--no-proxy-server'] });
+  browser = await chromium.launch({ executablePath: chromePath(), args: ['--no-proxy-server'] });
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
@@ -68,7 +70,11 @@ function chromePath() {
   ok(storageSafe, 'saving survives file:// storage being denied');
 
   console.log('  · registered views: ' + (probe.views.join(', ') || '(none yet)'));
-  await browser.close();
-  if (failures) { console.log('\n' + failures + ' failure(s)'); process.exit(1); }
-  console.log('\nall good');
-})();
+  if (failures) { console.log('\n' + failures + ' failure(s)'); process.exitCode = 1; }
+  else console.log('\nall good');
+})()
+  /* Whatever happens above, the browser gets closed and the reason gets
+     printed. Closing only on the success path left an orphan Chromium on
+     the runner and reported the failure as an unhandled rejection. */
+  .catch((e) => { console.error(e); process.exitCode = 1; })
+  .finally(() => browser && browser.close());

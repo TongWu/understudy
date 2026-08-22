@@ -1347,6 +1347,65 @@ U.el = function (tag, attrs, kids) {
 };
 U.clear = function (node) { while (node && node.firstChild) node.removeChild(node.firstChild); return node; };
 
+/* ---------- foreign markup ---------- */
+/* Text going into a string of HTML. Only ever for values that are text —
+   a title, an occasion — never for markup that is already markup. */
+U.esc = function (s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
+/* The tags a script is allowed to be made of. Everything a person writes in
+   the editor, and everything the browser produces when they paste, fits in
+   here; nothing else in this product needs more. */
+U.HTML_TAGS = {
+  p: 1, br: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1,
+  span: 1, div: 1, ul: 1, ol: 1, li: 1, blockquote: 1
+};
+
+/* Tags whose text is not prose either. Unwrapping these would spill a
+   stylesheet into the middle of the script — which is what a browser hands
+   over when you copy a paragraph off a web page. */
+U.HTML_DROP = {
+  script: 1, style: 1, head: 1, title: 1, template: 1,
+  noscript: 1, iframe: 1, object: 1, svg: 1, math: 1
+};
+
+/* The one gate for markup this session did not write: an AI reply, a
+   paragraph pasted off the web, someone else's exported file. The stage
+   renders scripts and cue leads as HTML, so a string arriving from outside is
+   a string that can run — and this page holds every talk you have written.
+
+   Rewritten rather than filtered: what comes out is text runs with their
+   angle brackets escaped, plus bare tags from the list above. No attribute
+   survives, because there is no formatting here that needs one and every way
+   this goes wrong is an attribute. A tag that is not on the list is unwrapped
+   and its text kept, which is what you want when a model wraps a paragraph in
+   something ornamental. Escaping the leftover brackets also means the result
+   stays safe when it is later joined to another string. */
+U.safeHtml = function (html) {
+  function text(s) { return s.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  var src = String(html == null ? '' : html), out = '', i = 0;
+  while (i < src.length) {
+    var lt = src.indexOf('<', i);
+    if (lt < 0) { out += text(src.slice(i)); break; }
+    out += text(src.slice(i, lt));
+    var gt = src.indexOf('>', lt);
+    if (gt < 0) { out += text(src.slice(lt)); break; }          /* an unfinished tag is text */
+    var m = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)/.exec(src.slice(lt, gt + 1));
+    var name = m ? m[2].toLowerCase() : '';
+    i = gt + 1;
+    if (!m) continue;
+    if (!m[1] && U.HTML_DROP[name]) {                           /* skip what it wraps, too */
+      var end = src.toLowerCase().indexOf('</' + name, i);
+      i = end < 0 ? src.length : (src.indexOf('>', end) < 0 ? src.length : src.indexOf('>', end) + 1);
+      continue;
+    }
+    if (U.HTML_TAGS[name]) out += '<' + m[1] + name + '>';
+  }
+  return out;
+};
+
 /* ---------- time ---------- */
 U.fmt = function (secs) {
   var s = Math.round(Math.abs(Number(secs) || 0));
@@ -2854,8 +2913,17 @@ U.run = (function () {
         doorway('AI 填充', ['aifill', 'ai-fill', 'ai', 'fill']),
         doorway('导出', ['export', 'share']) ||
           (U.io && U.io.exportHtml
-            ? U.el('button', { class: 'u-btn', onclick: function () { U.io.exportHtml(); } }, '导出')
+            ? U.el('button', {
+              class: 'u-btn', title: '你的工作副本 —— 整个应用加上这场演讲，旁批也在里面',
+              onclick: function () { U.io.exportHtml(); }
+            }, '导出')
             : null),
+        (U.io && U.io.exportHtml
+          ? U.el('button', {
+            class: 'u-btn', title: '同样一个文件，但把旁批拿掉 —— 那层只属于你',
+            onclick: function () { U.io.exportHtml({ share: true }); }
+          }, '给别人')
+          : null),
         doorway('排练', ['rehearsal', 'rehearse', 'rehearsal-setup', 'setup']),
         doorway('上台', ['prompter', 'stage', 'live', 'present'])
       ].filter(Boolean)
@@ -2993,7 +3061,15 @@ U.run = (function () {
         var file = input.files && input.files[0];
         if (!file) return;
         var reader = new FileReader();
-        reader.onload = function () { U.store.update(function () { beat.slideImage = String(reader.result); }); };
+        /* Through the same downscale the deck import uses. A photo off a phone
+           is several megabytes, the whole talk lives in one localStorage key,
+           and a slide that no longer fits is a slide that silently stops every
+           later save — including the script you are typing. */
+        reader.onload = function () {
+          U.io.downscale(String(reader.result)).then(function (small) {
+            U.store.update(function () { beat.slideImage = small; });
+          });
+        };
         reader.readAsDataURL(file);
       }
     });
@@ -3067,6 +3143,22 @@ U.run = (function () {
     saving = false;
   }
   function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 400); }
+
+  /* What the browser hands over on a paste from a web page is a whole
+     document — stylesheets, colours, classes that fight the theme, and markup
+     nobody in this session wrote. Take the words and the shape of the
+     paragraphs; leave the rest at the door. */
+  function paste(e) {
+    var data = e.clipboardData;
+    if (!data) return;
+    e.preventDefault();
+    var rich = data.getData('text/html');
+    var html = rich
+      ? U.safeHtml(rich)
+      : U.esc(data.getData('text/plain')).replace(/\r?\n/g, '<br>');
+    document.execCommand('insertHTML', false, html);
+    queueSave();
+  }
 
   function renderScriptFoot(beat) {
     var rate = rateOf();
@@ -3200,7 +3292,8 @@ U.run = (function () {
     long: { label: '太长', mod: 'tight' },
     term: { label: '术语', mod: null, chip: true },
     bookish: { label: '太书面', mod: 'tight' },
-    over: { label: '超预算', mod: 'over' }
+    over: { label: '超预算', mod: 'over' },
+    cueload: { label: '提词太多', mod: 'tight' }
   };
   function keyOf(f) { return f.kind + '/' + f.beatIndex + '/' + (f.snippet || f.where); }
 
@@ -3239,6 +3332,7 @@ U.run = (function () {
             e.stopPropagation();
             if (f.fix.action === 'adopt') adopt(beatsOf()[f.beatIndex]);
             else if (f.fix.action === 'glossary') { inline = keyOf(f); paint(); }
+            else if (f.fix.action === 'pickcue') pickCue(f);
             else jump(f);
           }
         }));
@@ -3257,13 +3351,42 @@ U.run = (function () {
   function jump(f) {
     if (f.beatIndex !== at()) U.store.ui({ beatIndex: f.beatIndex });
     if (f.paraIndex == null) return;
-    var p = refs.script.children[f.paraIndex];
+    var p = findPara(f);
     if (!p) return;
     var calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     p.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' });
     if (calm || !p.animate) return;
     var wash = getComputedStyle(refs.wrap).getPropertyValue('--wash').trim() || 'transparent';
     p.animate([{ backgroundColor: wash }, { backgroundColor: 'transparent' }], { duration: 1100, easing: 'ease-out' });
+  }
+
+  /* The checker counts paragraphs in the script's markup; these are the
+     contenteditable's own children. The two do not line up — a <br> inside one
+     <p> is two paragraphs to the checker and one child here, and an empty <p>
+     (which is exactly what a new beat starts as) is a child that the checker
+     never counted. So find the sentence, and keep the count only as a
+     fallback for the beat that has drifted since the scan. */
+  function findPara(f) {
+    var kids = refs.script.children;
+    var want = flat(f.snippet);
+    if (want) {
+      for (var i = 0; i < kids.length; i++) {
+        if (flat(kids[i].textContent).indexOf(want) >= 0) return kids[i];
+      }
+    }
+    return kids[f.paraIndex] || null;
+  }
+  function flat(s) { return String(s == null ? '' : s).replace(/\s+/g, ''); }
+
+  /* Cue overload is fixed by choosing, and choosing happens in the middle
+     column — so put the first mark under the finger rather than scrolling to
+     a paragraph that this finding does not have. */
+  function pickCue(f) {
+    if (f.beatIndex !== at()) U.store.ui({ beatIndex: f.beatIndex });
+    var first = refs.cues.querySelector('.u-ed__pick');
+    if (!first) return;
+    first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    first.focus();
   }
 
   function renderPanel(p, beats, beat, cur) {
@@ -3326,7 +3449,7 @@ U.run = (function () {
       refs.cues = U.el('div', { class: 'u-ed__cuelist' });
       refs.script = U.el('div', {
         class: 'u-read u-ed__script', contenteditable: 'true', spellcheck: 'false',
-        'aria-label': '讲稿', oninput: queueSave, onblur: flush
+        'aria-label': '讲稿', oninput: queueSave, onblur: flush, onpaste: paste
       });
       refs.scriptFoot = U.el('div', { class: 'u-ed__scriptfoot' });
 
@@ -4052,9 +4175,18 @@ U.drawer = (function () {
     });
     return out;
   }
+  /* A column name is a word lifted out of whatever the beat happens to say, so
+     it can be anything at all — including "count(*)", which is regex syntax
+     twice over. Escaped so it cannot throw, and the word boundary is only
+     asserted on an edge that is actually a word, or a name ending in a bracket
+     could never match anything. */
   function colHit(text, col) {
-    var c = col.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp('(?:columns?|col|列)\\s*' + c + '\\b|\\b' + c + '\\s*列', 'i').test(text);
+    var raw = String(col == null ? '' : col);
+    if (!raw) return false;
+    var c = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var tail = /\w$/.test(raw) ? '\\b' : '';
+    var head = /^\w/.test(raw) ? '\\b' : '';
+    return new RegExp('(?:columns?|col|列)\\s*' + c + tail + '|' + head + c + '\\s*列', 'i').test(text);
   }
   function tagHit(tag, beat) {
     var t = String(label(tag)).toLowerCase();
@@ -4079,12 +4211,13 @@ U.drawer = (function () {
     return keep;
   }
 
-  function relevance(item, beat, beats) {
+  function relevance(item, beat, beats, keep) {
     if (!beat) return 0;
     var text = itemText(item), score = 0;
     (item.tags || []).forEach(function (t) { if (tagHit(t, beat)) score += 4; });
     cols(beat).forEach(function (c) { if (colHit(text, c)) score += 3; });
-    var keep = keywords(beat, beats), hits = 0;
+    var hits = 0;
+    keep = keep || keywords(beat, beats);
     Object.keys(set(tokens(text))).forEach(function (w) { if (keep[w]) hits++; });
     return score + Math.min(3, hits);
   }
@@ -4093,8 +4226,12 @@ U.drawer = (function () {
      they were written in. A stable sort so the list does not shuffle under the
      speaker's eyes between two presses of the same key. */
   function rank(items, beat, beats) {
+    /* One document-frequency pass for the whole list. Per item it was the
+       whole running order tokenised once per question, on a path that reruns
+       on every keystroke in the search box — while the speaker is talking. */
+    var keep = beat ? keywords(beat, beats) : {};
     return (items || []).map(function (item, i) {
-      var score = relevance(item, beat, beats);
+      var score = relevance(item, beat, beats, keep);
       return {
         item: item, index: i, score: score, related: score >= RELATED,
         asked: ((item && item.askedIn) || []).length
@@ -4140,7 +4277,7 @@ U.drawer = (function () {
 
   return {
     RELATED: RELATED, tokens: tokens, beatText: beatText, itemText: itemText,
-    cols: cols, keywords: keywords, relevance: relevance, rank: rank,
+    cols: cols, colHit: colHit, keywords: keywords, relevance: relevance, rank: rank,
     search: search, firstUsedIn: firstUsedIn, stamp: stamp, mark: mark, label: label
   };
 })();
@@ -4242,7 +4379,10 @@ U.stage.define({
         chips.appendChild(U.el('span', { class: 'u-chip', text: U.drawer.label(t) }));
       });
       U.drawer.cols(beat).forEach(function (c) {
-        if (new RegExp('(?:columns?|col|列)\\s*' + c + '\\b', 'i').test(U.drawer.itemText(it))) {
+        /* The same test that scored it. Restating the pattern here also lost
+           the escaping, so a column called "count(*)" threw out of the render
+           and took the detail pane down with it. */
+        if (U.drawer.colHit(U.drawer.itemText(it), c)) {
           chips.appendChild(U.el('span', { class: 'u-chip', text: c + ' 列' }));
         }
       });
@@ -4480,14 +4620,14 @@ U.reflow = (function () {
   }
 
   /* What a dropped beat takes with it, and where the make-up line goes: the
-     last beat that survives after it, because that is the next time you will
+     first beat that survives after it, because that is the next time you will
      have the room's attention. */
   function knockOn(rows) {
     var out = [];
     (rows || []).forEach(function (row, i) {
       if (!row.skip) return;
       var into = null;
-      for (var j = i + 1; j < rows.length; j++) if (!rows[j].skip) { into = rows[j].beat; }
+      for (var j = i + 1; j < rows.length; j++) if (!rows[j].skip) { into = rows[j].beat; break; }
       if (!into) for (var k = i - 1; k >= 0; k--) if (!rows[k].skip) { into = rows[k].beat; break; }
       out.push({
         beat: row.beat, missing: leads(row.beat).slice(0, 2),
@@ -4503,8 +4643,8 @@ U.reflow = (function () {
   function makeUpCue(hit) {
     return {
       flag: 'SAY', cols: [],
-      lead: '<b>补回 ' + hit.beat.n + '</b> —— ' + (hit.missing[0] || hit.beat.title),
-      say: hit.line ? [hit.line] : [],
+      lead: '<b>补回 ' + U.esc(hit.beat.n) + '</b> —— ' + U.esc(hit.missing[0] || hit.beat.title),
+      say: hit.line ? [U.esc(hit.line)] : [],
       notes: ['这句是跳过 ' + hit.beat.n + ' 之后补的'],
       madeUpFor: hit.beat.id
     };
@@ -6937,22 +7077,26 @@ U.audio = (function () {
     var head = [];
     if (p.occasion) head.push(p.occasion);
     head.push(p.title || '未命名');
+    /* These land in a string that is written to innerHTML, so the title is
+       escaped rather than trusted. Not only for what a title could carry: an
+       unescaped < in "budget < 12:00" would silently eat the rest of the line
+       out of the prompt you are about to hand to a model. */
     return {
-      occasion: head.join(' · '),
+      occasion: U.esc(head.join(' · ')),
       audience: Number(p.audience) ? Number(p.audience) + ' 人' : '（人数待填）',
       duration: minutes(p.target),
       language: speak === notes
-        ? langName(speak) + '讲'
-        : langName(speak) + '讲；我的母语是' + langName(notes),
+        ? U.esc(langName(speak)) + '讲'
+        : U.esc(langName(speak)) + '讲；我的母语是' + U.esc(langName(notes)),
       target: String(Number(p.target) || 0),
       pace: speak === 'zh'
         ? '按中文 <b>' + (rate.zh || U.DEFAULT_RATE.zh) + '</b> 字/分'
-        : '按' + langName(speak) + ' <b>' + (rate.en || U.DEFAULT_RATE.en) + '</b> 词/分'
+        : '按' + U.esc(langName(speak)) + ' <b>' + (rate.en || U.DEFAULT_RATE.en) + '</b> 词/分'
     };
   }
 
-  /* Verbatim from design/AIFill.dc.html. Bold is markup, not content — the
-     plain text handed to the model is this string with the tags taken out. */
+  /* Bold is markup, not content — the plain text handed to the model is this
+     string with the tags taken out. */
   function promptHtml(p) {
     var s = occasionSlots(p);
     return '你是我的演讲排练助手。把随附的幻灯片做成一份演讲台本。\n' +
@@ -7321,22 +7465,43 @@ U.io = (function () {
     return JSON.stringify(production).replace(/</g, '\\u003c');
   }
 
+  /* A copy for somebody else. The 旁批 are the one thing in this product that
+     was promised never to leave — they are what you tell yourself about your
+     own performance, and half of them are only writable because nobody else
+     will read them. Printing and the plain-text export never carried them;
+     the self-contained copy did, because that copy is your workspace. So the
+     choice is made explicit rather than made for you: 导出 hands you
+     everything, 给别人 hands over the talk with the private layer cut out. */
+  function strip(production) {
+    var out = JSON.parse(JSON.stringify(production || {}));
+    (out.beats || []).forEach(function (b) {
+      delete b.notes;
+      (b.cue || []).forEach(function (c) { delete c.notes; });
+    });
+    return out;
+  }
+
   function exportHtml(opts) {
     opts = opts || {};
     if (typeof document === 'undefined') return '';
     var p = opts.production || U.store.production();
     if (!p) return '';
-    var tag = document.getElementById('embedded-production');
-    var html;
-    if (tag) {
-      var before = tag.textContent;
-      tag.textContent = bakeable(p);
-      html = '<!doctype html>\n' + document.documentElement.outerHTML + '\n';
-      tag.textContent = before;
-    } else {
-      html = '<!doctype html>\n' + document.documentElement.outerHTML + '\n';
-    }
-    if (opts.download !== false) download(safeName(p.title, '.html'), html, 'text/html');
+    if (opts.share) p = strip(p);
+    /* Written from a copy of the document, never from the document. Two
+       reasons, and the second is the one that bites: serialising the live tree
+       baked whatever was on screen into the file as static markup underneath
+       the real app — the talk written out twice, once as data and once as a
+       screen that boot discards on the first paint. Harmless in a working copy
+       and fatal in a shared one, because the 旁批 cut out of the JSON were
+       still sitting there in the editor's DOM. And doing it on a clone means
+       exporting mid-sentence does not disturb the caret you are typing with. */
+    var doc = document.documentElement.cloneNode(true);
+    var app = doc.querySelector('#app');
+    if (app) U.clear(app);
+    var tag = doc.querySelector('#embedded-production');
+    if (tag) tag.textContent = bakeable(p);
+    var html = '<!doctype html>\n' + doc.outerHTML + '\n';
+    if (opts.download !== false) download(safeName(p.title, opts.share ? ' 给别人.html' : '.html'), html, 'text/html');
     return html;
   }
 
@@ -7403,8 +7568,8 @@ U.io = (function () {
      editor's DOM belongs to another screen, and one beat per page is a shape
      no live layout has. */
   function printSheets(production) {
-    var p = production || U.store.production();
-    var beats = (p && p.beats) || [];
+    var p = production || U.store.production() || {};
+    var beats = p.beats || [];
     var head = [];
     if (p.occasion) head.push(p.occasion);
     if (p.date) head.push(String(p.date).replace('T', ' '));
@@ -7612,6 +7777,9 @@ U.io = (function () {
       err('count', '节数对不上：这边有 ' + beats.length + ' 节，这份给了 ' + incoming.length + ' 节。');
     }
 
+    /* Everything past this line is markup this session did not write. The
+       stage renders leads and scripts as HTML, so it goes through the gate
+       once, here, rather than at each of the dozen places that render it. */
     var rate = (production && production.rate) || U.DEFAULT_RATE;
     var target = Number(production && production.target) || 0;
     var noCue = [], noScript = [], guessed = [], sum = 0;
@@ -7621,7 +7789,7 @@ U.io = (function () {
       var mine = beats[i] || {};
       var tag = b.n ? String(b.n) : label(mine, i);
       var cue = Array.isArray(b.cue) ? b.cue.filter(function (c) { return c && (c.lead || (c.say && c.say.length)); }) : [];
-      var script = typeof b.script === 'string' ? b.script : '';
+      var script = U.safeHtml(typeof b.script === 'string' ? b.script : '');
       if (!cue.length) noCue.push(tag);
       if (!blockText(script).length) noScript.push(tag);
 
@@ -7642,8 +7810,8 @@ U.io = (function () {
           return {
             flag: c.flag ? String(c.flag) : '',
             cols: Array.isArray(c.cols) ? c.cols.map(String) : [],
-            lead: String(c.lead == null ? '' : c.lead),
-            say: Array.isArray(c.say) ? c.say.map(String) : (c.say ? [String(c.say)] : []),
+            lead: U.safeHtml(c.lead),
+            say: (Array.isArray(c.say) ? c.say : (c.say ? [c.say] : [])).map(function (x) { return U.safeHtml(x); }),
             notes: Array.isArray(c.notes) ? c.notes.map(String) : []
           };
         }),
@@ -7704,6 +7872,8 @@ U.io = (function () {
     plainText: plainText,
     print: print,
     printSheets: printSheets,
+    downscale: downscale,
+    strip: strip,
     importImages: importImages,
     importDeck: importDeck,
     sortFiles: sortFiles,
@@ -7732,7 +7902,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = U.io;
     if (!root) return;
     var name = U.store.get().ui.view;
     var def = U.views.get(name);
-    if (!def) { U.clear(root).appendChild(U.el('div', { class: 'u-lbl', style: { padding: '24px' } }, '没有这个界面：' + name)); return; }
+    if (!def) {
+      /* Forget what was mounted, or coming back to this same view finds
+         mounted === name and leaves the apology on screen. */
+      mounted = null;
+      U.clear(root).appendChild(U.el('div', { class: 'u-lbl', style: { padding: '24px' } }, '没有这个界面：' + name));
+      return;
+    }
     if (mounted !== name) {
       U.clear(root);
       mounted = name;

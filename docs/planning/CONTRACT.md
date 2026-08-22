@@ -111,6 +111,13 @@ U.run.current()       // = state.run
 把演讲的 JSON 塞进 `#embedded-production` 的内容里。启动时若发现内嵌 JSON，
 它优先于 localStorage —— 打开那个文件的人要的是那一场。
 
+```js
+U.io.exportHtml()                 // 工作副本：全量，含旁批
+U.io.exportHtml({ share: true })  // 给别人：U.io.strip() 去掉 beat.notes 与 cue.notes
+```
+**旁批只出现在工作副本里。** 打印和纯文本导出从来不带它；`{ share: true }`
+也不带。加新字段时想清楚它属于哪一边，并在 `strip()` 里体现。
+
 ### 外来 HTML 只有一道门
 台上把 `script`、`cue.lead`、`cue.say` 当 HTML 渲染，所以这三样只要不是本次
 会话自己写的，就得先过 `U.safeHtml()`：白名单标签、去掉全部属性、非正文标签
