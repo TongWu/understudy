@@ -1,0 +1,59 @@
+name: CI
+
+# What this guards, in order of how badly it bites:
+#
+# 1. dist/understudy.html is the product. It is committed, so anyone can
+#    download the repository and double-click the file — but that only holds
+#    if the committed file is what the sources build. The first job rebuilds
+#    and diffs, so "edited a module, forgot to rebuild" fails here instead of
+#    shipping a stale artefact.
+# 2. The unit suite covers the arithmetic everything else rests on: how long a
+#    script takes to say, drift, and the reallocation.
+# 3. The end-to-end suites drive the real built file over file://, which is
+#    how it is actually used. They run in their own job so a browser failure
+#    reads as a browser failure and not as a broken unit test.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false   # nothing here pushes; don't leave a token in .git/config
+      - uses: actions/setup-node@v5
+        with: { node-version: '22' }
+
+      - name: The committed product must be what the sources build
+        run: |
+          set -euo pipefail
+          python3 viewer/build_template.py --output /tmp/fresh.html
+          if ! diff -q /tmp/fresh.html dist/understudy.html >/dev/null; then
+            echo "::error file=dist/understudy.html::dist/understudy.html is stale — run 'npm run build' and commit the result"
+            diff <(head -c 400 dist/understudy.html) <(head -c 400 /tmp/fresh.html) || true
+            exit 1
+          fi
+          echo "dist/understudy.html matches the sources."
+
+      - run: npm ci
+      - run: npm run test:unit
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false   # nothing here pushes; don't leave a token in .git/config
+      - uses: actions/setup-node@v5
+        with: { node-version: '22' }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

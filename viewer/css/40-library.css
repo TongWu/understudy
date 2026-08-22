@@ -1,0 +1,244 @@
+/* 后台 · AI 填充 · 打印。
+
+   Every size here is derived from --fs-ui and every colour from the token set,
+   so 纸/夜 and 紧凑/舒适 keep working on these screens without a second layout.
+   The design sheets specify px and hex; the arithmetic below is that same
+   ladder expressed against the one variable the density switch moves. */
+.u-lib, .u-ai, .u-print {
+  --f-h1:calc(var(--fs-ui) * 3);        /* 42 */
+  --f-h2:calc(var(--fs-ui) * 2.43);     /* 34 */
+  --f-big:calc(var(--fs-ui) * 2.07);    /* 29 */
+  --f-lead:calc(var(--fs-ui) * 1.64);   /* 23 */
+  --f-title:calc(var(--fs-ui) * 1.43);  /* 20 */
+  --f-strong:calc(var(--fs-ui) * 1.07); /* 15 */
+  --f-meta:calc(var(--fs-ui) - 1px);    /* 13 */
+  --f-num:calc(var(--fs-ui) - 1.5px);   /* 12.5 */
+  --f-run:calc(var(--fs-ui) - 2.5px);   /* 11.5 */
+  --f-small:calc(var(--fs-ui) - 3px);   /* 11 */
+  --f-micro:calc(var(--fs-ui) - 3.5px); /* 10.5 */
+  --f-tiny:calc(var(--fs-ui) - 4px);    /* 10 */
+  --f-nano:calc(var(--fs-ui) - 4.5px);  /* 9.5 */
+
+  --pad-page:34px 56px 40px;
+  --gap-block:26px;
+  --pad-row:17px 20px;
+}
+[data-density="roomy"] .u-lib,
+[data-density="roomy"] .u-ai {
+  --pad-page:42px 64px 48px;
+  --gap-block:32px;
+  --pad-row:23px 22px;
+}
+
+/* ============================ 后台 ============================ */
+
+.u-lib{height:100%;display:flex;flex-direction:column;background:var(--paper);overflow:hidden}
+.u-lib__body{flex:1;display:flex;flex-direction:column;padding:var(--pad-page);
+  gap:var(--gap-block);min-height:0;overflow-y:auto}
+
+.u-lib__head{display:flex;align-items:flex-end;gap:16px}
+.u-lib__headid{display:flex;flex-direction:column;gap:1px}
+.u-lib__h1{font-size:var(--f-h1);line-height:1.2}
+.u-lib__tally{font-size:var(--f-meta);color:var(--ink-3)}
+.u-lib__headbtn{padding:9px 14px}
+
+/* Next up. The one dark block on a paper screen: it is the talk that is
+   actually coming, and it should read as a different kind of thing from the
+   shelf below it. The element carries data-theme="night", so every colour below
+   is the night token set evaluated in place — no fifth palette, no hex, and no
+   dependence on the stage classes, which are a screen container rather than a
+   set of colours. */
+.u-lib__next{display:flex;align-items:stretch;background:var(--card-2);
+  border:1px solid var(--rule);border-radius:5px;overflow:hidden;
+  color:var(--ink);height:auto}
+.u-lib__when{padding:20px 24px;display:flex;flex-direction:column;gap:2px;
+  background:var(--card);flex:0 0 auto}
+.u-lib__count{font-size:var(--f-big);font-weight:600;color:var(--ink);
+  letter-spacing:-.02em;line-height:1.2;white-space:nowrap}
+.u-lib__date{font-size:var(--f-small);color:var(--ink-2);white-space:nowrap}
+.u-lib__nextbody{padding:20px 24px;display:flex;flex-direction:column;gap:6px;
+  flex:1;min-width:0;justify-content:center}
+.u-lib__nexttitle{font-size:var(--f-lead);color:var(--ink);line-height:1.2}
+.u-lib__hints{display:flex;gap:16px;flex-wrap:wrap}
+.u-lib__hint{font-size:var(--f-num);color:var(--ink-2)}
+.u-lib__hint--bad{color:var(--over)}
+.u-lib__hint--ok{color:var(--go)}
+.u-lib__nextact{padding:20px 24px;display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.u-lib__ghost{background:transparent;color:var(--ink-2);border-color:var(--ink-4)}
+.u-lib__ghost:hover{border-color:var(--ink-2);color:var(--ink)}
+.u-lib__solid{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.u-lib__solid:hover{border-color:var(--ink)}
+
+.u-lib__table{display:flex;flex-direction:column;min-height:0}
+.u-lib__tabs{display:flex;align-items:center;gap:7px;padding-bottom:11px}
+.u-lib__tab{background:transparent;color:var(--ink-2);cursor:pointer}
+.u-lib__tab.is-on{color:var(--paper);background:var(--ink);border-color:var(--ink)}
+.u-lib__sort{font-size:var(--f-micro);color:var(--ink-3)}
+
+.u-lib__row{display:grid;
+  grid-template-columns:120px minmax(0,1fr) 74px 116px 120px 152px 20px;
+  align-items:center;gap:20px;padding:var(--pad-row);width:100%;text-align:left;
+  border:0;border-bottom:1px solid var(--rule-soft);background:transparent;
+  color:var(--ink);font:inherit;cursor:pointer}
+.u-lib__row:hover{background:var(--card)}
+.u-lib__row--head{padding-top:0;padding-bottom:9px;border-bottom:1px solid var(--ink);
+  cursor:default;background:transparent}
+.u-lib__row--head:hover{background:transparent}
+.u-lib__row--done{opacity:.62}
+.u-lib__status{display:flex;align-items:center;gap:7px}
+.u-lib__dot{width:6px;height:6px;border-radius:50%;flex:0 0 6px}
+.u-lib__statusword{color:var(--ink-2)}
+.u-lib__ident{display:flex;flex-direction:column;gap:1px;min-width:0}
+.u-lib__title{font-size:var(--f-title);line-height:1.2;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.u-lib__where{font-size:var(--f-micro);color:var(--ink-3);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.u-lib__beats{font-size:var(--f-num);color:var(--ink-2);text-align:right}
+.u-lib__fit{display:flex;align-items:baseline;gap:5px;justify-content:flex-end}
+.u-lib__est{font-size:var(--fs-ui);font-weight:600}
+.u-lib__target{font-size:var(--f-small);color:var(--ink-3)}
+.u-lib__runs{font-size:var(--f-run);color:var(--ink-2)}
+.u-lib__done{display:flex;flex-direction:column;gap:4px}
+.u-lib__segs{display:flex;gap:2px;flex-wrap:wrap}
+.u-lib__seg{width:11px;height:5px;border-radius:1px;flex:0 0 11px}
+.u-lib__seg--full{background:var(--ink)}
+.u-lib__seg--cue{background:var(--ink-4)}
+.u-lib__seg--empty{background:var(--rule-soft)}
+.u-lib__donetext{font-size:var(--f-nano);color:var(--ink-3);white-space:nowrap}
+.u-lib__none{padding:26px 20px;color:var(--ink-3);font-size:var(--f-meta)}
+
+.u-lib__drop{display:flex;align-items:center;gap:9px;padding:22px 20px;
+  border:1px dashed var(--rule);border-radius:var(--radius);margin-top:20px;
+  background:var(--card-2);cursor:pointer}
+.u-lib__drop.is-over{border-color:var(--ink-3);background:var(--sel)}
+.u-lib__droptext{font-size:var(--f-meta);color:var(--ink-2)}
+.u-lib__notice{font-size:var(--f-micro);color:var(--tight)}
+.u-lib__aibtn{font-size:var(--f-tiny);padding:5px 10px}
+.u-lib__formats{font-size:var(--f-micro);color:var(--ink-3)}
+
+/* ============================ AI 填充 ============================ */
+
+.u-ai{height:100%;display:flex;flex-direction:column;background:var(--paper);overflow:hidden}
+.u-ai__body{flex:1;display:flex;flex-direction:column;padding:var(--pad-page);
+  gap:20px;min-height:0;overflow-y:auto}
+.u-ai__head{display:flex;align-items:flex-end;gap:20px}
+.u-ai__headid{display:flex;flex-direction:column;gap:3px;max-width:760px}
+.u-ai__h1{font-size:var(--f-h2);line-height:1.1}
+.u-ai__lede{font-size:var(--f-meta);color:var(--ink-2);line-height:1.5}
+.u-ai__slidebox{display:flex;flex-direction:column;gap:3px;align-items:flex-end}
+.u-ai__slides{font-size:var(--f-strong);font-weight:600;white-space:nowrap}
+
+.u-ai__steps{display:flex;align-items:center;padding:13px 18px;flex:0 0 auto}
+.u-ai__step{display:flex;align-items:center;gap:9px}
+.u-ai__steprule{flex:1;height:1px;background:var(--rule-soft);margin:0 16px}
+.u-ai__sn{width:22px;height:22px;border-radius:50%;border:1px solid var(--rule);
+  background:var(--card);display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:var(--f-small);font-weight:600;color:var(--ink-3);flex:0 0 22px}
+.u-ai__sn--done{background:var(--go);border-color:var(--go);color:var(--paper)}
+.u-ai__sn--now{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.u-ai__stepword{font-size:var(--f-meta);color:var(--ink-2)}
+.u-ai__stepword--now{font-weight:600;color:var(--ink)}
+.u-ai__stepword--todo{color:var(--ink-3)}
+
+.u-ai__grid{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 430px;
+  gap:var(--gap-block);min-height:0}
+.u-ai__promptcard{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.u-ai__promptbar{display:flex;align-items:center;gap:10px;padding:11px 16px;
+  border-bottom:1px solid var(--rule-soft);background:var(--card-2);flex-wrap:wrap}
+.u-ai__barlbl{color:var(--ink)}
+.u-ai__barnote{font-size:var(--f-tiny);color:var(--ink-3)}
+.u-ai__mini{font-size:var(--f-tiny);padding:5px 10px}
+.u-ai__copynote{font-size:var(--f-tiny);color:var(--ink-3)}
+.u-ai__copynote.is-ok{color:var(--go)}
+.u-ai__copynote.is-bad{color:var(--over)}
+.u-ai__promptbody{flex:1;position:relative;overflow:hidden;background:var(--card);min-height:0}
+.u-ai__code{margin:0;height:100%;overflow:auto;padding:15px 18px;
+  font-family:var(--mono);font-size:var(--f-small);line-height:1.5;color:var(--ink-2);
+  white-space:pre-wrap;word-break:break-word}
+.u-ai__code b{color:var(--ink);font-weight:600}
+.u-ai__edit{display:none;width:100%;height:100%;border:0;outline:none;resize:none;
+  padding:15px 18px;background:var(--card);color:var(--ink);
+  font-family:var(--mono);font-size:var(--f-small);line-height:1.5}
+.u-ai__fade{position:absolute;left:0;right:0;bottom:0;height:46px;pointer-events:none;
+  background:linear-gradient(to bottom,transparent,var(--card))}
+.u-ai__attach{display:flex;align-items:center;gap:9px;padding:10px 16px;
+  border-top:1px solid var(--rule-soft);flex-wrap:wrap;flex:0 0 auto}
+/* A filename is case-sensitive; the label uppercasing does not apply to it. */
+.u-ai__attachpill{background:var(--card-2);text-transform:none;letter-spacing:.02em}
+
+.u-ai__side{display:flex;flex-direction:column;gap:11px;min-height:0}
+.u-ai__sidehead{display:flex;align-items:baseline;gap:9px}
+.u-ai__prevnote{font-size:var(--f-tiny);color:var(--ink-3);margin-left:auto;text-align:right}
+.u-ai__prev{display:flex;flex-direction:column;overflow-y:auto;min-height:0}
+.u-ai__prow{display:grid;grid-template-columns:20px 34px minmax(0,1fr) 62px;
+  align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--rule-soft)}
+.u-ai__prow.is-todo{opacity:.72}
+.u-ai__pn{font-size:var(--f-micro);color:var(--ink-3)}
+.u-ai__thumb{height:20px;width:100%;object-fit:cover;border-radius:1px;
+  border:1px solid var(--rule-soft)}
+.u-ai__thumb--has{background:var(--rule-soft)}
+.u-ai__thumb--none{background:repeating-linear-gradient(135deg,
+  var(--paper-2) 0 4px,var(--rule-soft) 4px 8px)}
+.u-ai__ptitle{font-size:var(--f-num);color:var(--ink);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.u-ai__prow.is-todo .u-ai__ptitle{color:var(--ink-3)}
+.u-ai__pill--todo{color:var(--ink-3);background:transparent;text-align:center}
+.u-ai__later{margin-top:auto;padding:12px 14px;background:var(--card-2);
+  border:1px solid var(--rule-soft);border-radius:var(--radius);
+  display:flex;flex-direction:column;gap:5px;flex:0 0 auto}
+.u-ai__latertext{font-size:var(--f-num);color:var(--ink-2);line-height:1.55}
+
+.u-ai__four{display:flex;align-items:stretch;overflow:hidden;flex:0 0 auto}
+.u-ai__fourhead{padding:14px 18px;display:flex;align-items:center;gap:10px;
+  background:var(--card-2);border-right:1px solid var(--rule-soft);flex:0 0 auto}
+.u-ai__fourid{display:flex;flex-direction:column;gap:1px}
+.u-ai__fourtitle{font-size:var(--f-meta);font-weight:600}
+.u-ai__foursub{font-size:var(--f-tiny);color:var(--ink-3)}
+.u-ai__fourbody{flex:1;padding:14px 18px;display:flex;align-items:center;gap:14px;min-width:0}
+.u-ai__paste{flex:1;min-width:0;height:46px;resize:none;outline:none;
+  border:1px dashed var(--rule);border-radius:3px;padding:10px 12px;
+  background:var(--paper);color:var(--ink);
+  font-family:var(--mono);font-size:var(--f-small);line-height:1.5}
+.u-ai__paste:focus{border-style:solid;border-color:var(--ink-3)}
+.u-ai__verdict{display:flex;flex-direction:column;gap:2px;flex:0 1 auto;max-width:420px}
+.u-ai__vline{font-size:var(--f-small);color:var(--ink-3)}
+.u-ai__vline.is-ok{color:var(--go);font-weight:600}
+.u-ai__vline.is-bad{color:var(--over)}
+.u-ai__vline.is-warn{color:var(--tight)}
+.u-ai__fill{padding:9px 15px;flex:0 0 auto}
+
+/* ============================ 打印 ============================ */
+
+/* Built on demand by U.io.print() and hidden the rest of the time. One beat per
+   page, nothing else on the sheet — a paper 台本 is a fallback for when the
+   laptop dies, so it carries the words and none of the instruments. 旁批 stay
+   out of it, the same as every other way a talk leaves this app. */
+.u-print{display:none}
+.u-print__sheet{padding:0 0 24px}
+.u-print__cover{border-bottom:1px solid var(--rule)}
+.u-print__title{font-size:var(--f-h1);line-height:1.15;display:block}
+.u-print__meta{font-size:var(--f-meta);color:var(--ink-3);display:block;margin-top:6px}
+.u-print__head{display:flex;align-items:baseline;gap:12px;
+  border-bottom:1px solid var(--rule);padding-bottom:8px}
+.u-print__n{font-size:var(--f-meta);color:var(--ink-3)}
+.u-print__beat{font-size:var(--f-lead);line-height:1.2;flex:1}
+.u-print__budget{font-size:var(--f-meta);color:var(--ink-3)}
+.u-print__slide{font-size:var(--f-micro);color:var(--ink-3);margin-top:6px;display:block}
+.u-print__lbl{margin-top:16px;display:block}
+.u-print__cue{list-style:none;margin:6px 0 0;padding:0}
+.u-print__cue li{padding:var(--pad-cue) 0;border-bottom:1px solid var(--rule-soft)}
+.u-print__flag{margin-right:6px}
+.u-print__lead{font-size:var(--fs-lead)}
+.u-print__say{font-size:var(--fs-say);line-height:var(--lh-say);color:var(--ink-2);margin-top:4px}
+.u-print__script{font-size:var(--fs-script);line-height:var(--lh-script);margin-top:6px}
+.u-print__script p{margin:0 0 var(--gap-script)}
+
+@media print {
+  @page{margin:16mm 15mm}
+  html,body{height:auto;background:var(--paper)}
+  #app{display:none !important}
+  .u-print{display:block}
+  .u-print__sheet{break-after:page;page-break-after:always;break-inside:avoid-page}
+  .u-print__sheet:last-child{break-after:auto;page-break-after:auto}
+  .u-print__cue li{break-inside:avoid}
+}

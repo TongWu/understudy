@@ -1,0 +1,114 @@
+name: Deploy demo (GitHub Pages)
+
+# Publishes the app itself as the demo. There is nothing to assemble: the
+# product is one self-contained HTML file that already carries a sample talk,
+# so the site is that file served as index.html. Opening the demo and
+# double-clicking a downloaded copy are the same experience, which is the
+# point of the whole build.
+#
+# ONE-TIME SETUP: Settings -> Pages -> Source = "Deploy from a branch",
+# Branch = gh-pages / (root).
+
+# Runs after CI rather than on the push itself: the demo is the product, and
+# publishing a build whose tests never ran is how a broken product becomes the
+# thing everyone downloads. A manual dispatch is a deliberate human act and is
+# allowed through unconditionally.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # CI runs on pull requests too, and a green PR is not a reason to publish.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The exact commit CI passed on, not whatever main has drifted to.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false   # the publish authenticates via GH_TOKEN
+
+      - name: Build the site
+        run: |
+          set -euo pipefail
+          python3 viewer/build_template.py
+          mkdir -p _site
+          cp dist/understudy.html _site/index.html
+          cp dist/understudy.html _site/understudy.html   # the stable download URL
+          touch _site/.nojekyll
+
+      - name: Publish to the gh-pages root
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          auth="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Deployments are serialised but not ordered. Two pushes in quick
+          # succession whose CI finishes in the other order would leave the
+          # older run publishing last, and the demo would quietly serve an
+          # older build until something else was pushed. Publish only what main
+          # is actually at; if main has moved on, the run for that commit will
+          # publish when its own CI goes green. A lookup that fails publishes
+          # rather than blocks, because a network hiccup is not a reason to
+          # skip a deploy.
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            tip="$(git ls-remote "$auth" refs/heads/main 2>/dev/null | cut -f1 || true)"
+            if [ -n "$tip" ] && [ "$tip" != "$SOURCE_SHA" ]; then
+              echo "main is at $tip — not publishing the older $SOURCE_SHA over it."
+              exit 0
+            fi
+          fi
+
+          work="$(mktemp -d)"
+
+          if git clone --depth 1 --branch gh-pages --single-branch "$auth" "$work" 2>/dev/null; then
+            :
+          else
+            git clone --depth 1 "$auth" "$work"
+            git -C "$work" checkout --orphan gh-pages
+            git -C "$work" rm -rf . >/dev/null 2>&1 || true
+          fi
+          cd "$work"
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          attempt=0
+          while :; do
+            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp -a "$GITHUB_WORKSPACE/_site"/. .
+            git add -A
+            if git diff --cached --quiet; then
+              echo "gh-pages is already up to date."
+              break
+            fi
+            git commit -q -m "Deploy demo @ ${SOURCE_SHA}"
+            if git push origin gh-pages; then
+              echo "Published."
+              break
+            fi
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 5 ]; then
+              echo "::error::could not push to gh-pages after $attempt attempts"
+              exit 1
+            fi
+            git fetch --depth 1 origin gh-pages
+            git reset --hard FETCH_HEAD
+            sleep $((2 ** attempt))
+          done

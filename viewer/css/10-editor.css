@@ -1,0 +1,213 @@
+/* Editor — one DOM, four evaluations of it. Every colour comes from the token
+   set so 纸/夜 costs nothing, and everything that breathes between 紧凑 and
+   舒适 is expressed against the density scale rather than restated here.
+
+   The handful of literal sizes below are the micro type the design holds
+   still in both densities (time codes, section counters, the 27px budget).
+   They live in one block instead of scattered through the rules, so there is
+   still exactly one place to change them — 00-tokens.css has no scale for
+   type this small and this module may not add one. */
+.u-ed {
+  --ed-micro:10px;      /* 位置、偏差 */
+  --ed-small:10.5px;    /* 时码 */
+  --ed-meta:11px;
+  --ed-note:12.5px;     /* 旁批与检查说明 */
+  --ed-body:13px;
+  --ed-nano:9.5px;
+  --ed-slide-w:318px;
+  --ed-slide-h:112px;
+  height:100%;display:flex;flex-direction:column;background:var(--paper);overflow:hidden;
+}
+.u-ed__body{flex:1;display:grid;grid-template-columns:260px minmax(0,1fr) 300px;min-height:0}
+
+/* ---------- top bar: the number the product exists for ---------- */
+.u-ed__pace{display:flex;align-items:baseline;gap:9px;padding-right:4px}
+.u-ed__pacebig{font-size:20px;font-weight:600;letter-spacing:-.02em}
+.u-ed__pacesub{font-size:var(--ed-small);color:var(--ink-3);white-space:nowrap}
+
+/* ---------- left: running order ---------- */
+.u-ed__rail{background:var(--paper-2);border-right:1px solid var(--rule);
+  display:flex;flex-direction:column;min-height:0}
+.u-ed__railhead{display:flex;align-items:center;gap:8px;padding:14px 14px 9px;flex:0 0 auto}
+.u-ed__add{background:none;border:0;padding:0;cursor:pointer;color:var(--ink-2)}
+.u-ed__add:hover{color:var(--ink)}
+.u-ed__list{flex:1;min-height:0;overflow-y:auto}
+
+.u-ed__beat{display:flex;flex-direction:column;gap:calc(var(--pad-cue) / 2);
+  width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;
+  background:none;border:0;border-left:3px solid transparent;padding:var(--pad-beat)}
+.u-ed__beat.is-on{background:var(--card);border-left-color:var(--ink);
+  box-shadow:0 1px 0 var(--rule-soft),0 -1px 0 var(--rule-soft)}
+.u-ed__beat:hover:not(.is-on){background:var(--sel)}
+.u-ed__beatline{display:flex;align-items:baseline;gap:8px}
+.u-ed__n{font-size:var(--ed-small);color:var(--ink-3);font-weight:500}
+.u-ed__beattitle{font-size:calc(var(--fs-ui) - 1px);line-height:calc(var(--lh-ui) - .2);
+  flex:1;min-width:0}
+.u-ed__beatbudget{font-size:var(--ed-small);color:var(--ink-2)}
+.u-ed__meter{display:flex;align-items:center;gap:7px;padding-left:26px}
+.u-ed__track{height:3px;flex:1;display:flex;border-radius:2px;overflow:hidden;background:var(--rule-soft)}
+.u-ed__fill{height:100%;border-radius:2px}
+.u-ed__fill--go{background:var(--go)}
+.u-ed__fill--tight{background:var(--tight)}
+.u-ed__fill--over{background:var(--over)}
+.u-ed__drift{font-size:var(--ed-micro);font-weight:600;color:var(--ink-3)}
+.u-ed__drift--tight{color:var(--tight)}
+.u-ed__drift--over{color:var(--over)}
+
+.u-ed__appendix{margin:10px 14px 0;padding-top:11px;border-top:1px solid var(--rule);
+  display:flex;align-items:baseline;gap:8px}
+.u-ed__appendix .u-ed__beattitle{color:var(--ink-2)}
+
+.u-ed__railfoot{flex:0 0 auto;padding:12px 14px 14px;border-top:1px solid var(--rule);
+  display:flex;flex-direction:column;gap:5px}
+.u-ed__total{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.u-ed__totalv{font-size:12px}
+.u-ed__totalv--tight{color:var(--tight);font-weight:600}
+.u-ed__totalv--over{color:var(--over);font-weight:600}
+/* bound keys print themselves — nothing is reachable and unlisted */
+.u-ed__keys{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:6px;padding-top:8px;
+  border-top:1px solid var(--rule-soft)}
+.u-ed__key{display:flex;align-items:center;gap:5px}
+.u-ed__keycap{font-size:var(--ed-micro);color:var(--ink-2);background:var(--card);
+  border:1px solid var(--rule);border-radius:2px;padding:0 4px;line-height:1.5}
+
+/* ---------- centre: the spread ---------- */
+.u-ed__main{min-width:0;display:flex;flex-direction:column;padding:22px 28px 0;gap:18px;overflow:hidden}
+.u-ed__head{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+.u-ed__eyebrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.u-ed__where{font-size:var(--ed-meta);color:var(--ink-3)}
+.u-ed__bigtitle{font-size:31px;line-height:1.16}
+.u-ed__pill--soft{color:var(--ink-2);border-color:var(--rule);background:var(--card-2)}
+.u-ed__pill--chip{color:var(--chip);border-color:var(--chip-bd);background:var(--chip-bg)}
+
+.u-ed__band{display:flex;gap:18px;align-items:flex-start;flex:0 0 auto}
+.u-ed__slide{width:var(--ed-slide-w);flex:0 0 var(--ed-slide-w);height:var(--ed-slide-h);
+  border:1px solid var(--rule);border-radius:3px;background:var(--card);
+  display:flex;align-items:center;justify-content:center;overflow:hidden}
+.u-ed__slide.is-empty{border-style:dashed;background:var(--card-2)}
+.u-ed__slidebox{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;padding:10px}
+.u-ed__slideref{font-size:var(--ed-meta);color:var(--ink-3)}
+.u-ed__slideimg{max-width:100%;max-height:100%;object-fit:contain}
+.u-ed__bandmeta{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;padding-top:2px}
+.u-ed__metarow{display:flex;flex-direction:column;gap:2px}
+.u-ed__metatext{font-size:var(--ed-body);color:var(--ink-2)}
+.u-ed__over{color:var(--over)}
+.u-ed__bandacts{display:flex;gap:6px;padding-top:2px}
+
+.u-ed__spread{flex:1;display:grid;grid-template-columns:360px minmax(0,1fr);gap:26px;min-height:0}
+.u-ed__col{display:flex;flex-direction:column;gap:10px;min-height:0}
+.u-ed__colhead{flex:0 0 auto;display:flex;align-items:baseline;gap:8px;
+  padding-bottom:7px;border-bottom:1px solid var(--ink)}
+.u-ed__col--cue .u-ed__colhead{padding-left:10px;padding-right:10px}
+.u-ed__colname{color:var(--ink)}
+.u-ed__colnote{font-size:var(--ed-micro);color:var(--ink-3);margin-left:auto}
+
+.u-ed__cuelist{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column}
+.u-ed__cue{display:flex;flex-direction:column;gap:calc(var(--pad-cue) / 2);
+  padding:var(--pad-cue) 10px;border-top:var(--cue-rule) solid var(--rule-soft)}
+.u-ed__cue:first-child{border-top:0}
+.u-ed__cue.is-noted{background:var(--card);border-radius:var(--radius)}
+.u-ed__cuetop{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px}
+.u-ed__lead{font-weight:600;font-size:var(--fs-lead)}
+.u-ed__say{font-style:italic;font-size:var(--fs-say);line-height:var(--lh-say);
+  color:var(--ink-2);padding-left:11px;border-left:2px solid var(--rule)}
+/* 旁批 is the one thing on this screen that is never spoken — always the same red */
+.u-ed__note{display:flex;gap:7px;align-items:flex-start;padding-left:11px}
+.u-ed__notelbl{color:var(--over);font-size:9px;padding-top:3px;flex:0 0 auto}
+.u-ed__notetext{font-size:var(--ed-note);color:var(--over);line-height:1.5}
+
+.u-ed__scriptwrap{flex:1;min-height:0;overflow-y:auto}
+.u-ed__script{font-size:var(--fs-script);line-height:var(--lh-script);color:var(--ink)}
+.u-ed__script p{margin:0 0 var(--gap-script)}
+.u-ed__script p:last-child{margin-bottom:0}
+/* <b> in a script means say it louder, so it gets the highlighter, not bold alone */
+.u-ed__script b,.u-ed__script strong{font-weight:600;
+  box-shadow:inset 0 calc(var(--fs-script) / -2) 0 var(--wash)}
+.u-ed__script:focus,.u-ed__script:focus-visible{outline:none}
+.u-ed__scriptfoot{flex:0 0 auto;padding-top:11px;border-top:1px solid var(--rule-soft);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.u-ed__footnote{font-size:var(--ed-meta);color:var(--ink-3)}
+.u-ed__est{font-size:var(--ed-body);font-weight:600}
+.u-ed__est--go{color:var(--go)}
+.u-ed__est--tight{color:var(--tight)}
+.u-ed__est--over{color:var(--over)}
+
+/* ---------- right: inspector ---------- */
+.u-ed__panel{background:var(--paper-2);border-left:1px solid var(--rule);
+  padding:14px 16px 0;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.u-ed__tabs{flex:0 0 auto;display:flex;gap:4px;padding-bottom:10px}
+.u-ed__tab{padding:6px 11px;border:0;border-radius:3px;background:transparent;
+  color:var(--ink-2);cursor:pointer}
+.u-ed__tab[aria-selected="true"]{background:var(--ink);color:var(--paper)}
+.u-ed__panelbody{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.u-ed__panelbody--check{gap:0}
+.u-ed__panelfoot{flex:0 0 auto;padding:11px 0 14px;border-top:1px solid var(--rule)}
+.u-ed__sec{display:flex;flex-direction:column;gap:8px}
+.u-ed__sechead{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.u-ed__tiny{font-size:var(--ed-nano);color:var(--ink-3);line-height:1.6}
+.u-ed__lbl--over{color:var(--over)}
+.u-ed__empty{font-size:12px;color:var(--ink-3);line-height:1.5}
+
+.u-ed__stepper{display:flex;align-items:center;gap:9px}
+.u-ed__budgetbig{font-size:27px;font-weight:600;letter-spacing:-.02em}
+.u-ed__mini{font-size:var(--ed-nano);padding:4px 8px}
+.u-ed__mini--step{font-size:var(--ed-body);padding:4px 10px;line-height:1}
+/* scoped: 01-base.css owns .u-btn, this module only says what its own
+   unavailable buttons look like */
+.u-ed .u-btn[disabled]{opacity:.5;cursor:default}
+.u-ed .u-btn[disabled]:hover{border-color:var(--rule)}
+.u-ed__hint{display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+.u-ed__hint--go{background:var(--go-bg);border-color:var(--go-bd)}
+.u-ed__hint--go .u-ed__hinttext{color:var(--go)}
+.u-ed__hint--tight{background:var(--tight-bg);border-color:var(--tight-bd)}
+.u-ed__hint--tight .u-ed__hinttext{color:var(--tight)}
+.u-ed__hint--over{background:var(--over-bg);border-color:var(--over-bd)}
+.u-ed__hint--over .u-ed__hinttext{color:var(--over)}
+.u-ed__hinttext{flex:1;font-size:12px;color:var(--ink-2)}
+/* moving a budget never shortens a talk; the caveat sits under the button that
+   most looks like it might */
+.u-ed__caveat{color:var(--ink-3)}
+
+.u-ed__tags{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.u-ed__tag{cursor:pointer;font-family:var(--cond)}
+.u-ed__tag--add{color:var(--ink-3);border-style:dashed;border-color:var(--rule-soft);background:transparent}
+.u-ed__tag--add:hover{color:var(--ink-2);border-color:var(--rule)}
+.u-ed__field{flex:1;min-width:0;font-family:var(--sans);font-size:12px;color:var(--ink);
+  background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:4px 7px}
+
+.u-ed__notes{display:flex;flex-direction:column;gap:7px}
+.u-ed__panelnote{display:flex;gap:6px;font-size:var(--ed-note);color:var(--over);
+  line-height:1.5;padding-left:9px;border-left:2px solid var(--over-bd)}
+.u-ed__noteref{font-size:var(--ed-nano);color:var(--ink-3);flex:0 0 auto;padding-top:2px}
+
+.u-ed__runs{display:flex;flex-direction:column}
+.u-ed__run{display:flex;align-items:baseline;gap:8px;padding:7px 0;
+  border-bottom:1px solid var(--rule-soft)}
+.u-ed__run:last-child{border-bottom:0}
+.u-ed__runn{font-size:var(--ed-small);color:var(--ink-3);width:44px;flex:0 0 44px}
+.u-ed__runv{font-size:var(--ed-body);color:var(--ink-2)}
+.u-ed__runv.is-last{font-weight:600;color:var(--ink)}
+.u-ed__rundiff{font-size:var(--ed-meta);color:var(--ink-3);margin-left:auto}
+
+/* ---------- right: the check ---------- */
+.u-chk__item{display:flex;flex-direction:column;gap:6px;padding:13px 0;
+  border-top:1px solid var(--rule-soft);cursor:pointer}
+.u-chk__item:first-child{border-top:0}
+.u-chk__item.is-here{margin-left:-11px;padding-left:9px;border-left:2px solid var(--ink)}
+.u-chk__item:hover{background:var(--sel)}
+.u-chk__top{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.u-chk__where{font-size:var(--ed-micro);color:var(--ink-3)}
+.u-chk__msg{font-size:var(--ed-note);color:var(--ink-2);line-height:1.55}
+.u-chk__acts{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding-top:2px}
+
+/* Marking a cue item as one you will actually look at on stage. The control
+   sits in the item's own head so the choice is made where the words are, and
+   an unmarked item stays fully legible at the desk — it is still part of the
+   script, just not part of the card. */
+.u-ed__pick{width:11px;height:11px;flex:0 0 11px;margin-top:calc(var(--fs-lead) * 0.28);
+  border:1.5px solid var(--ink-4);border-radius:50%;background:transparent;padding:0;cursor:pointer}
+.u-ed__pick:hover{border-color:var(--ink-2)}
+.u-ed__pick.is-on{background:var(--tight);border-color:var(--tight)}
+.u-ed__cue.is-desk{opacity:.58}
+.u-ed__cue.is-desk .u-ed__pick{border-style:dashed}
