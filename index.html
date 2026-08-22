@@ -224,6 +224,10 @@ a:hover{color:var(--ink)}
 .u-seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
 .u-seg__b{padding:6px 10px;border:0;background:var(--card);color:var(--ink-2);cursor:pointer;font:inherit}
 .u-seg__b[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.u-top__warn{font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.05em;
+  padding:6px 11px;border:1px solid var(--over-bd);border-radius:3px;
+  background:var(--over-bg);color:var(--over);cursor:pointer}
+.u-top__warn:hover{background:var(--over);color:var(--paper)}
 
 /* ==== css/10-editor.css ==== */
 /* Editor — one DOM, four evaluations of it. Every colour comes from the token
@@ -1343,6 +1347,95 @@ U.el = function (tag, attrs, kids) {
 };
 U.clear = function (node) { while (node && node.firstChild) node.removeChild(node.firstChild); return node; };
 
+/* ---------- foreign markup ---------- */
+/* Text going into a string of HTML. Only ever for values that are text —
+   a title, an occasion — never for markup that is already markup. */
+U.esc = function (s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
+/* The tags a script is allowed to be made of. Everything a person writes in
+   the editor, and everything the browser produces when they paste, fits in
+   here; nothing else in this product needs more. */
+U.HTML_TAGS = {
+  p: 1, br: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1,
+  span: 1, div: 1, ul: 1, ol: 1, li: 1, blockquote: 1
+};
+
+/* Tags whose text is not prose either. Unwrapping these would spill a
+   stylesheet into the middle of the script — which is what a browser hands
+   over when you copy a paragraph off a web page. */
+U.HTML_DROP = {
+  script: 1, style: 1, head: 1, title: 1, template: 1,
+  noscript: 1, iframe: 1, object: 1, svg: 1, math: 1
+};
+
+/* The one gate for markup this session did not write: an AI reply, a
+   paragraph pasted off the web, someone else's exported file. The stage
+   renders scripts and cue leads as HTML, so a string arriving from outside is
+   a string that can run — and this page holds every talk you have written.
+
+   Rewritten rather than filtered: what comes out is text runs with their
+   angle brackets escaped, plus bare tags from the list above. No attribute
+   survives, because there is no formatting here that needs one and every way
+   this goes wrong is an attribute. A tag that is not on the list is unwrapped
+   and its text kept, which is what you want when a model wraps a paragraph in
+   something ornamental. Escaping the leftover brackets also means the result
+   stays safe when it is later joined to another string. */
+U.safeHtml = function (html) {
+  function text(s) { return s.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  /* Where the tag ends: the first > that is not inside a quoted attribute.
+     Taking the first > full stop spilled title="a > b" into the script as
+     text — the same leak as before, arriving from the other direction. An
+     unbalanced quote falls back to the plain first >, so a stray " in prose
+     cannot swallow the rest of the paragraph. */
+  function tagEnd(src, from) {
+    var quote = '';
+    for (var i = from; i < src.length; i++) {
+      var ch = src.charAt(i);
+      if (quote) { if (ch === quote) quote = ''; continue; }
+      if (ch === '"' || ch === "'") { quote = ch; continue; }
+      if (ch === '>') return i;
+    }
+    return -1;
+  }
+  var src = String(html == null ? '' : html), out = '', i = 0;
+  while (i < src.length) {
+    var lt = src.indexOf('<', i);
+    if (lt < 0) { out += text(src.slice(i)); break; }
+    out += text(src.slice(i, lt));
+
+    /* A comment can carry a > of its own, so it ends where it says it ends. */
+    if (src.substr(lt, 4) === '<!--') {
+      var close = src.indexOf('-->', lt);
+      i = close < 0 ? src.length : close + 3;
+      continue;
+    }
+    var gt = tagEnd(src, lt + 1);
+    if (gt < 0) gt = src.indexOf('>', lt);
+    if (gt < 0) { out += text(src.slice(lt)); break; }          /* an unfinished tag is text */
+    var span = src.slice(lt, gt + 1);
+    i = gt + 1;
+    if (/^<[!?]/.test(span)) continue;                          /* a doctype is not prose */
+
+    /* The name has to sit right against the bracket. Allowing a space made
+       "a < b > c" — a comparison somebody wrote — parse as a bold tag and eat
+       the words around it. What is not a tag is text, and is kept as text:
+       "a < 3 > b" belongs to the speaker, not to the parser. */
+    var m = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)/.exec(span);
+    if (!m) { out += text(span); continue; }
+    var name = m[2].toLowerCase();
+    if (!m[1] && U.HTML_DROP[name]) {                           /* skip what it wraps, too */
+      var end = src.toLowerCase().indexOf('</' + name, i);
+      i = end < 0 ? src.length : (src.indexOf('>', end) < 0 ? src.length : src.indexOf('>', end) + 1);
+      continue;
+    }
+    if (U.HTML_TAGS[name]) out += '<' + m[1] + name + '>';
+  }
+  return out;
+};
+
 /* ---------- time ---------- */
 U.fmt = function (secs) {
   var s = Math.round(Math.abs(Number(secs) || 0));
@@ -1445,7 +1538,8 @@ U.store = (function () {
     productions: {},
     currentId: null,
     ui: { view: 'library', beatIndex: 0, theme: 'paper', density: 'compact' },
-    run: null            /* set while rehearsing or on stage; see 30-* */
+    run: null,           /* set while rehearsing or on stage; see 30-* */
+    storage: null        /* 'full' once a write was refused for quota */
   };
   var subs = [];
 
@@ -1467,9 +1561,24 @@ U.store = (function () {
     b.dataset.density = state.ui.density;
     b.dataset.view = state.ui.view;
   }
+  /* Returns whether the write landed. Swallowing the failure was the worst of
+     both worlds: the screen said the slides were added, the user kept working,
+     and a reload threw all of it away. The product's real save is the exported
+     file, so the honest thing is to say storage is full and point at it. */
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ productions: state.productions, currentId: state.currentId, ui: state.ui })); }
-    catch (e) { /* private window, file:// with storage blocked — keep going */ }
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ productions: state.productions, currentId: state.currentId, ui: state.ui }));
+      if (state.storage) { state.storage = null; }
+      return true;
+    } catch (e) {
+      /* Two different sentences to say, and both have to be said. A full quota
+         means the work was persisting and has stopped; storage denied outright
+         — a private window, file:// in a browser that refuses it — means it
+         never was. The second is the more dangerous of the two precisely
+         because nothing looks wrong, so it warns as loudly as the first. */
+      state.storage = /quota|exceed/i.test(String(e && (e.name + ' ' + e.message))) ? 'full' : 'off';
+      return false;
+    }
   }
   function load() {
     try {
@@ -1491,7 +1600,16 @@ U.store = (function () {
     open: function (id) { state.currentId = id; state.ui.beatIndex = 0; applyBody(); save(); emit(); },
     ui: function (patch) { Object.assign(state.ui, patch); applyBody(); save(); emit(); },
     /* Mutate through here so every screen repaints and nothing is lost on reload. */
-    update: function (fn) { fn(state); save(); emit(); },
+    /* Returns whether the change reached storage, so a caller that has just
+       taken something in from outside can say so rather than reporting a
+       success the next reload would contradict. */
+    update: function (fn) { fn(state); var ok = save(); emit(); return ok; },
+    /* Same, without the write. For state that changes faster than it is worth
+       persisting — the running clock, twice a second — where serialising every
+       talk in storage would block the main thread on the one screen that must
+       never stutter. Whoever uses it is responsible for calling update() at
+       the boundaries that matter. */
+    touch: function (fn) { fn(state); emit(); },
     subscribe: function (fn) { subs.push(fn); return function () { var i = subs.indexOf(fn); if (i >= 0) subs.splice(i, 1); }; },
     load: load, save: save, applyBody: applyBody
   };
@@ -2574,6 +2692,17 @@ U.chrome = (function () {
         opts.crumb ? U.el('span', { class: 'u-mono u-top__crumb' }, '/ ' + opts.crumb) : null
       ]),
       U.el('div', { style: { flex: '1' } }),
+      /* Not a toast. If the browser cannot hold the work, that has to stay on
+         screen until the user has a file in hand. */
+      U.store.get().storage ? U.el('button', {
+        class: 'u-top__warn',
+        title: U.store.get().storage === 'full'
+          ? '浏览器存不下了 —— 导出一份带走'
+          : '这个浏览器不让存东西（无痕窗口？）—— 关掉这一页就没了，导出一份带走',
+        onclick: function () { if (U.io) U.io.exportHtml(); }
+      }, U.store.get().storage === 'full'
+        ? '浏览器存不下了 · 导出一份带走'
+        : '这个浏览器没在存 · 导出一份带走') : null,
       opts.middle || null,
       opts.switches === false ? null : switches(),
       U.el('div', { class: 'u-top__actions' }, opts.actions || [])
@@ -2593,28 +2722,58 @@ U.chrome = (function () {
    seconds over". */
 U.run = (function () {
   var timer = null;
+  /* Swappable so the tests can drive time by hand; nothing else touches it. */
+  var now = function () {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  };
 
   function cur() { return U.store.get().run; }
   function beats() { return U.store.beats(); }
 
+  /* Measured against a monotonic clock rather than counted per callback. A
+     background tab is throttled to roughly one callback a minute, and the
+     speaker WILL switch to their slide software — counting invocations would
+     quietly undercount exactly the number this tool exists to report. Time
+     recovered after a stall lands on the beat that was showing, because that
+     is the beat it was spent on. */
   function tick() {
     var r = cur();
     if (!r || !r.running) return;
-    U.store.update(function () {
-      r.elapsed += 1;
+    var secs = Math.max(0, Math.round((api._now() - r.base) / 1000));
+    var gained = secs - r.elapsed;
+    if (gained <= 0) return;
+    /* In memory only: every boundary below settles up with a real save, and
+       persisting here would serialise every talk in storage — slide images and
+       all — twice a second, on the screen that is in front of an audience. */
+    U.store.touch(function () {
+      r.elapsed = secs;
       var slot = r.perBeat[r.beatIndex];
-      if (slot) slot.spent += 1;
+      if (slot) slot.spent += gained;
     });
+  }
+
+  /* Which beats this run covers. A partial rehearsal that still let the
+     arrows wander into unrehearsed beats would be a full rehearsal that
+     happens to start in the middle. */
+  function allowedIndexes() {
+    var r = cur(), bs = beats();
+    var ids = r && r.only;
+    if (!ids || !ids.length) return null;
+    var out = [];
+    bs.forEach(function (b, i) { if (ids.indexOf(b.id) >= 0) out.push(i); });
+    return out.length ? out : null;
   }
   /* Wall-clock ticking is a browser concern. Under node the tests drive
      _tick() by hand, and an interval there would just hold the process open. */
   function arm(on) {
     if (typeof window === 'undefined') return;
     if (timer) { clearInterval(timer); timer = null; }
-    if (on) timer = setInterval(tick, 1000);
+    /* Twice a second: the clock is read, not counted, so a late callback
+       costs nothing but a slightly stale countdown. */
+    if (on) timer = setInterval(tick, 500);
   }
 
-  return {
+  var api = {
     /* difficulty: 1 照读 · 2 只看提词 · 3 冷启动 · 4 有人打断 */
     start: function (opts) {
       opts = opts || {};
@@ -2625,7 +2784,7 @@ U.run = (function () {
           difficulty: opts.difficulty || 1,
           target: opts.target || (p && p.target) || 0,
           recording: !!opts.recording,
-          elapsed: 0, running: false, beatIndex: 0, finished: false,
+          elapsed: 0, running: false, beatIndex: 0, finished: false, base: 0,
           perBeat: beats().map(function (b) { return { beat: b.id, spent: 0 }; })
         };
         s.ui.beatIndex = 0;
@@ -2634,15 +2793,38 @@ U.run = (function () {
     },
     toggle: function (on) {
       var r = cur(); if (!r) return null;
-      U.store.update(function () { r.running = on == null ? !r.running : !!on; });
+      var want = on == null ? !r.running : !!on;
+      /* Settle up before the boundary moves. Up to half a second is sitting
+         between the last callback and now; on a pause it would be dropped, and
+         on a beat change it would be charged to the beat you just walked into
+         — which is the one number the recap exists to report. */
+      if (!want) tick();
+      U.store.update(function () {
+        /* Re-anchor on resume so a pause does not count as elapsed time. */
+        if (want && !r.running) r.base = api._now() - r.elapsed * 1000;
+        r.running = want;
+      });
       arm(r.running);
       return r;
     },
+    /* True when this beat is part of the run. Navigation consults it. */
+    allows: function (index) {
+      var allowed = allowedIndexes();
+      return !allowed || allowed.indexOf(index) >= 0;
+    },
+    allowed: allowedIndexes,
     /* Move to a beat. Keeps run.beatIndex and ui.beatIndex in step so the
        screens and the clock can never disagree about where you are. */
     go: function (index) {
+      tick();                            /* and this settles it to storage below */
       var r = cur(), n = beats().length;
       var i = Math.max(0, Math.min(n - 1, index));
+      var allowed = allowedIndexes();
+      if (allowed && allowed.indexOf(i) < 0) {
+        i = allowed.reduce(function (best, k) {
+          return Math.abs(k - index) < Math.abs(best - index) ? k : best;
+        }, allowed[0]);
+      }
       U.store.update(function (s) { s.ui.beatIndex = i; if (r) r.beatIndex = i; });
       return i;
     },
@@ -2683,8 +2865,9 @@ U.run = (function () {
     },
     current: cur,
     /* Tests drive the clock by hand rather than waiting on wall time. */
-    _tick: tick
+    _tick: tick, _now: now
   };
+  return api;
 })();
 
 /* ==== js/10-editor.js ==== */
@@ -2785,8 +2968,17 @@ U.run = (function () {
         doorway('AI 填充', ['aifill', 'ai-fill', 'ai', 'fill']),
         doorway('导出', ['export', 'share']) ||
           (U.io && U.io.exportHtml
-            ? U.el('button', { class: 'u-btn', onclick: function () { U.io.exportHtml(); } }, '导出')
+            ? U.el('button', {
+              class: 'u-btn', title: '你的工作副本 —— 整个应用加上这场演讲，旁批也在里面',
+              onclick: function () { U.io.exportHtml(); }
+            }, '导出')
             : null),
+        (U.io && U.io.exportHtml
+          ? U.el('button', {
+            class: 'u-btn', title: '同样一个文件，但把旁批拿掉 —— 那层只属于你',
+            onclick: function () { U.io.exportHtml({ share: true }); }
+          }, '给别人')
+          : null),
         doorway('排练', ['rehearsal', 'rehearse', 'rehearsal-setup', 'setup']),
         doorway('上台', ['prompter', 'stage', 'live', 'present'])
       ].filter(Boolean)
@@ -2924,7 +3116,15 @@ U.run = (function () {
         var file = input.files && input.files[0];
         if (!file) return;
         var reader = new FileReader();
-        reader.onload = function () { U.store.update(function () { beat.slideImage = String(reader.result); }); };
+        /* Through the same downscale the deck import uses. A photo off a phone
+           is several megabytes, the whole talk lives in one localStorage key,
+           and a slide that no longer fits is a slide that silently stops every
+           later save — including the script you are typing. */
+        reader.onload = function () {
+          U.io.downscale(String(reader.result)).then(function (small) {
+            U.store.update(function () { beat.slideImage = small; });
+          });
+        };
         reader.readAsDataURL(file);
       }
     });
@@ -2998,6 +3198,22 @@ U.run = (function () {
     saving = false;
   }
   function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 400); }
+
+  /* What the browser hands over on a paste from a web page is a whole
+     document — stylesheets, colours, classes that fight the theme, and markup
+     nobody in this session wrote. Take the words and the shape of the
+     paragraphs; leave the rest at the door. */
+  function paste(e) {
+    var data = e.clipboardData;
+    if (!data) return;
+    e.preventDefault();
+    var rich = data.getData('text/html');
+    var html = rich
+      ? U.safeHtml(rich)
+      : U.esc(data.getData('text/plain')).replace(/\r?\n/g, '<br>');
+    document.execCommand('insertHTML', false, html);
+    queueSave();
+  }
 
   function renderScriptFoot(beat) {
     var rate = rateOf();
@@ -3091,7 +3307,7 @@ U.run = (function () {
     body.appendChild(U.el('section', { class: 'u-ed__sec' }, [
       U.el('div', { class: 'u-ed__sechead' }, [
         U.el('span', { class: 'u-lbl u-ed__lbl--over' }, '旁批'),
-        U.el('span', { class: 'u-mono u-ed__tiny' }, '只给自己看 · 不导出 · 不上台念')
+        U.el('span', { class: 'u-mono u-ed__tiny' }, '只给自己看 · 不导出 · 台上只看不念')
       ]),
       notes.length
         ? U.el('div', { class: 'u-ed__notes' }, notes.map(function (n) {
@@ -3131,7 +3347,8 @@ U.run = (function () {
     long: { label: '太长', mod: 'tight' },
     term: { label: '术语', mod: null, chip: true },
     bookish: { label: '太书面', mod: 'tight' },
-    over: { label: '超预算', mod: 'over' }
+    over: { label: '超预算', mod: 'over' },
+    cueload: { label: '提词太多', mod: 'tight' }
   };
   function keyOf(f) { return f.kind + '/' + f.beatIndex + '/' + (f.snippet || f.where); }
 
@@ -3170,6 +3387,7 @@ U.run = (function () {
             e.stopPropagation();
             if (f.fix.action === 'adopt') adopt(beatsOf()[f.beatIndex]);
             else if (f.fix.action === 'glossary') { inline = keyOf(f); paint(); }
+            else if (f.fix.action === 'pickcue') pickCue(f);
             else jump(f);
           }
         }));
@@ -3188,13 +3406,42 @@ U.run = (function () {
   function jump(f) {
     if (f.beatIndex !== at()) U.store.ui({ beatIndex: f.beatIndex });
     if (f.paraIndex == null) return;
-    var p = refs.script.children[f.paraIndex];
+    var p = findPara(f);
     if (!p) return;
     var calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     p.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' });
     if (calm || !p.animate) return;
     var wash = getComputedStyle(refs.wrap).getPropertyValue('--wash').trim() || 'transparent';
     p.animate([{ backgroundColor: wash }, { backgroundColor: 'transparent' }], { duration: 1100, easing: 'ease-out' });
+  }
+
+  /* The checker counts paragraphs in the script's markup; these are the
+     contenteditable's own children. The two do not line up — a <br> inside one
+     <p> is two paragraphs to the checker and one child here, and an empty <p>
+     (which is exactly what a new beat starts as) is a child that the checker
+     never counted. So find the sentence, and keep the count only as a
+     fallback for the beat that has drifted since the scan. */
+  function findPara(f) {
+    var kids = refs.script.children;
+    var want = flat(f.snippet);
+    if (want) {
+      for (var i = 0; i < kids.length; i++) {
+        if (flat(kids[i].textContent).indexOf(want) >= 0) return kids[i];
+      }
+    }
+    return kids[f.paraIndex] || null;
+  }
+  function flat(s) { return String(s == null ? '' : s).replace(/\s+/g, ''); }
+
+  /* Cue overload is fixed by choosing, and choosing happens in the middle
+     column — so put the first mark under the finger rather than scrolling to
+     a paragraph that this finding does not have. */
+  function pickCue(f) {
+    if (f.beatIndex !== at()) U.store.ui({ beatIndex: f.beatIndex });
+    var first = refs.cues.querySelector('.u-ed__pick');
+    if (!first) return;
+    first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    first.focus();
   }
 
   function renderPanel(p, beats, beat, cur) {
@@ -3257,7 +3504,7 @@ U.run = (function () {
       refs.cues = U.el('div', { class: 'u-ed__cuelist' });
       refs.script = U.el('div', {
         class: 'u-read u-ed__script', contenteditable: 'true', spellcheck: 'false',
-        'aria-label': '讲稿', oninput: queueSave, onblur: flush
+        'aria-label': '讲稿', oninput: queueSave, onblur: flush, onpaste: paste
       });
       refs.scriptFoot = U.el('div', { class: 'u-ed__scriptfoot' });
 
@@ -3654,15 +3901,34 @@ U.stage = (function () {
 U.prompter = (function () {
   /* Beats a re-plan struck out are stepped over rather than counted down. */
   function skipped(b) { return !!(b && b.skipped); }
-  function nextIndex(i, dir) {
-    var beats = U.store.beats(), j = i + dir;
-    while (j > 0 && j < beats.length - 1 && skipped(beats[j])) j += dir;
-    return Math.max(0, Math.min(beats.length - 1, j));
+  /* A beat is reachable if a reallocation did not drop it and the run
+     actually covers it — a partial rehearsal must not wander into beats the
+     speaker chose not to practise. */
+  function playable(beat, index) {
+    return !skipped(beat) && (!U.run.allows || U.run.allows(index));
   }
-  function nextBeat(i) {
+  /* null when there is nothing that way. The caller decides what the end of a
+     run means, which is not the same as clamping back onto the last beat. */
+  function step(i, dir) {
     var beats = U.store.beats();
-    for (var j = i + 1; j < beats.length; j++) if (!skipped(beats[j])) return beats[j];
+    for (var j = i + dir; j >= 0 && j < beats.length; j += dir) {
+      if (playable(beats[j], j)) return j;
+    }
     return null;
+  }
+  function nextIndex(i, dir) { var j = step(i, dir); return j == null ? i : j; }
+  function nextBeat(i) { var j = step(i, 1); return j == null ? null : U.store.beats()[j]; }
+  /* The end of the run is the only moment the speaker actually stops, so it is
+     the only place that can record one. Without it a finished rehearsal never
+     reached the history, the recap stayed on the previous run, and the
+     microphone kept listening. */
+  function finishRun() {
+    var r = U.run.current();
+    if (!r || r.finished) return null;
+    U.run.toggle(false);
+    var record = U.run.finish();
+    U.views.show(r.mode === 'live' ? 'debrief' : 'recap');
+    return record;
   }
   /* The pacing word comes first and the colour second — the number is read
      from two metres away, sometimes by someone who cannot separate the hues. */
@@ -3680,7 +3946,8 @@ U.prompter = (function () {
     return '';
   }
   return {
-    skipped: skipped, nextIndex: nextIndex, nextBeat: nextBeat,
+    skipped: skipped, playable: playable, step: step, finishRun: finishRun,
+    nextIndex: nextIndex, nextBeat: nextBeat,
     drift: drift, remainTone: remainTone,
     LAST_MINUTE: 60
   };
@@ -3828,7 +4095,10 @@ U.views.register('prompter', {
       });
       var nb = U.prompter.nextBeat(i);
       ui.nextN.textContent = nb ? nb.n : '';
-      ui.nextTitle.textContent = nb ? nb.title : '这是最后一节';
+      /* Say what the arrow does here, or the end of the run is a key that is
+         bound and printed nowhere — the thing the key registry exists to stop. */
+      ui.nextTitle.textContent = nb ? nb.title
+        : '这是最后一节 · 按 → 结束，去' + (((U.run.current() || {}).mode === 'live') ? '回填' : '复盘');
       ui.nextBudget.textContent = nb ? U.fmt(nb.budget) : '';
     }
 
@@ -3841,10 +4111,13 @@ U.views.register('prompter', {
    them is bound here and nowhere else, and the footer is rendered from this
    table rather than from a hand-written list. */
 U.stage.bindTop('ArrowLeft', '换节', function () {
-  U.run.go(U.prompter.nextIndex(U.store.get().ui.beatIndex, -1));
+  var j = U.prompter.step(U.store.get().ui.beatIndex, -1);
+  if (j != null) U.run.go(j);
 }, 10);
 U.stage.bindTop('ArrowRight', '换节', function () {
-  U.run.go(U.prompter.nextIndex(U.store.get().ui.beatIndex, 1));
+  var j = U.prompter.step(U.store.get().ui.beatIndex, 1);
+  if (j != null) { U.run.go(j); return; }
+  U.prompter.finishRun();
 }, 11);
 U.stage.bindTop('Space', '计时', function () { U.run.toggle(); }, 20);
 U.stage.bindTop('ArrowDown', '看讲稿', function () { U.stage.show('panic'); }, 30);
@@ -3957,9 +4230,18 @@ U.drawer = (function () {
     });
     return out;
   }
+  /* A column name is a word lifted out of whatever the beat happens to say, so
+     it can be anything at all — including "count(*)", which is regex syntax
+     twice over. Escaped so it cannot throw, and the word boundary is only
+     asserted on an edge that is actually a word, or a name ending in a bracket
+     could never match anything. */
   function colHit(text, col) {
-    var c = col.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp('(?:columns?|col|列)\\s*' + c + '\\b|\\b' + c + '\\s*列', 'i').test(text);
+    var raw = String(col == null ? '' : col);
+    if (!raw) return false;
+    var c = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var tail = /\w$/.test(raw) ? '\\b' : '';
+    var head = /^\w/.test(raw) ? '\\b' : '';
+    return new RegExp('(?:columns?|col|列)\\s*' + c + tail + '|' + head + c + '\\s*列', 'i').test(text);
   }
   function tagHit(tag, beat) {
     var t = String(label(tag)).toLowerCase();
@@ -3984,12 +4266,13 @@ U.drawer = (function () {
     return keep;
   }
 
-  function relevance(item, beat, beats) {
+  function relevance(item, beat, beats, keep) {
     if (!beat) return 0;
     var text = itemText(item), score = 0;
     (item.tags || []).forEach(function (t) { if (tagHit(t, beat)) score += 4; });
     cols(beat).forEach(function (c) { if (colHit(text, c)) score += 3; });
-    var keep = keywords(beat, beats), hits = 0;
+    var hits = 0;
+    keep = keep || keywords(beat, beats);
     Object.keys(set(tokens(text))).forEach(function (w) { if (keep[w]) hits++; });
     return score + Math.min(3, hits);
   }
@@ -3998,8 +4281,12 @@ U.drawer = (function () {
      they were written in. A stable sort so the list does not shuffle under the
      speaker's eyes between two presses of the same key. */
   function rank(items, beat, beats) {
+    /* One document-frequency pass for the whole list. Per item it was the
+       whole running order tokenised once per question, on a path that reruns
+       on every keystroke in the search box — while the speaker is talking. */
+    var keep = beat ? keywords(beat, beats) : {};
     return (items || []).map(function (item, i) {
-      var score = relevance(item, beat, beats);
+      var score = relevance(item, beat, beats, keep);
       return {
         item: item, index: i, score: score, related: score >= RELATED,
         asked: ((item && item.askedIn) || []).length
@@ -4045,7 +4332,7 @@ U.drawer = (function () {
 
   return {
     RELATED: RELATED, tokens: tokens, beatText: beatText, itemText: itemText,
-    cols: cols, keywords: keywords, relevance: relevance, rank: rank,
+    cols: cols, colHit: colHit, keywords: keywords, relevance: relevance, rank: rank,
     search: search, firstUsedIn: firstUsedIn, stamp: stamp, mark: mark, label: label
   };
 })();
@@ -4147,7 +4434,10 @@ U.stage.define({
         chips.appendChild(U.el('span', { class: 'u-chip', text: U.drawer.label(t) }));
       });
       U.drawer.cols(beat).forEach(function (c) {
-        if (new RegExp('(?:columns?|col|列)\\s*' + c + '\\b', 'i').test(U.drawer.itemText(it))) {
+        /* The same test that scored it. Restating the pattern here also lost
+           the escaping, so a column called "count(*)" threw out of the render
+           and took the detail pane down with it. */
+        if (U.drawer.colHit(U.drawer.itemText(it), c)) {
           chips.appendChild(U.el('span', { class: 'u-chip', text: c + ' 列' }));
         }
       });
@@ -4385,14 +4675,14 @@ U.reflow = (function () {
   }
 
   /* What a dropped beat takes with it, and where the make-up line goes: the
-     last beat that survives after it, because that is the next time you will
+     first beat that survives after it, because that is the next time you will
      have the room's attention. */
   function knockOn(rows) {
     var out = [];
     (rows || []).forEach(function (row, i) {
       if (!row.skip) return;
       var into = null;
-      for (var j = i + 1; j < rows.length; j++) if (!rows[j].skip) { into = rows[j].beat; }
+      for (var j = i + 1; j < rows.length; j++) if (!rows[j].skip) { into = rows[j].beat; break; }
       if (!into) for (var k = i - 1; k >= 0; k--) if (!rows[k].skip) { into = rows[k].beat; break; }
       out.push({
         beat: row.beat, missing: leads(row.beat).slice(0, 2),
@@ -4408,8 +4698,8 @@ U.reflow = (function () {
   function makeUpCue(hit) {
     return {
       flag: 'SAY', cols: [],
-      lead: '<b>补回 ' + hit.beat.n + '</b> —— ' + (hit.missing[0] || hit.beat.title),
-      say: hit.line ? [hit.line] : [],
+      lead: '<b>补回 ' + U.esc(hit.beat.n) + '</b> —— ' + U.esc(hit.missing[0] || hit.beat.title),
+      say: hit.line ? [U.esc(hit.line)] : [],
       notes: ['这句是跳过 ' + hit.beat.n + ' 之后补的'],
       madeUpFor: hit.beat.id
     };
@@ -6842,22 +7132,26 @@ U.audio = (function () {
     var head = [];
     if (p.occasion) head.push(p.occasion);
     head.push(p.title || '未命名');
+    /* These land in a string that is written to innerHTML, so the title is
+       escaped rather than trusted. Not only for what a title could carry: an
+       unescaped < in "budget < 12:00" would silently eat the rest of the line
+       out of the prompt you are about to hand to a model. */
     return {
-      occasion: head.join(' · '),
+      occasion: U.esc(head.join(' · ')),
       audience: Number(p.audience) ? Number(p.audience) + ' 人' : '（人数待填）',
       duration: minutes(p.target),
       language: speak === notes
-        ? langName(speak) + '讲'
-        : langName(speak) + '讲；我的母语是' + langName(notes),
+        ? U.esc(langName(speak)) + '讲'
+        : U.esc(langName(speak)) + '讲；我的母语是' + U.esc(langName(notes)),
       target: String(Number(p.target) || 0),
       pace: speak === 'zh'
         ? '按中文 <b>' + (rate.zh || U.DEFAULT_RATE.zh) + '</b> 字/分'
-        : '按' + langName(speak) + ' <b>' + (rate.en || U.DEFAULT_RATE.en) + '</b> 词/分'
+        : '按' + U.esc(langName(speak)) + ' <b>' + (rate.en || U.DEFAULT_RATE.en) + '</b> 词/分'
     };
   }
 
-  /* Verbatim from design/AIFill.dc.html. Bold is markup, not content — the
-     plain text handed to the model is this string with the tags taken out. */
+  /* Bold is markup, not content — the plain text handed to the model is this
+     string with the tags taken out. */
   function promptHtml(p) {
     var s = occasionSlots(p);
     return '你是我的演讲排练助手。把随附的幻灯片做成一份演讲台本。\n' +
@@ -7226,22 +7520,43 @@ U.io = (function () {
     return JSON.stringify(production).replace(/</g, '\\u003c');
   }
 
+  /* A copy for somebody else. The 旁批 are the one thing in this product that
+     was promised never to leave — they are what you tell yourself about your
+     own performance, and half of them are only writable because nobody else
+     will read them. Printing and the plain-text export never carried them;
+     the self-contained copy did, because that copy is your workspace. So the
+     choice is made explicit rather than made for you: 导出 hands you
+     everything, 给别人 hands over the talk with the private layer cut out. */
+  function strip(production) {
+    var out = JSON.parse(JSON.stringify(production || {}));
+    (out.beats || []).forEach(function (b) {
+      delete b.notes;
+      (b.cue || []).forEach(function (c) { delete c.notes; });
+    });
+    return out;
+  }
+
   function exportHtml(opts) {
     opts = opts || {};
     if (typeof document === 'undefined') return '';
     var p = opts.production || U.store.production();
     if (!p) return '';
-    var tag = document.getElementById('embedded-production');
-    var html;
-    if (tag) {
-      var before = tag.textContent;
-      tag.textContent = bakeable(p);
-      html = '<!doctype html>\n' + document.documentElement.outerHTML + '\n';
-      tag.textContent = before;
-    } else {
-      html = '<!doctype html>\n' + document.documentElement.outerHTML + '\n';
-    }
-    if (opts.download !== false) download(safeName(p.title, '.html'), html, 'text/html');
+    if (opts.share) p = strip(p);
+    /* Written from a copy of the document, never from the document. Two
+       reasons, and the second is the one that bites: serialising the live tree
+       baked whatever was on screen into the file as static markup underneath
+       the real app — the talk written out twice, once as data and once as a
+       screen that boot discards on the first paint. Harmless in a working copy
+       and fatal in a shared one, because the 旁批 cut out of the JSON were
+       still sitting there in the editor's DOM. And doing it on a clone means
+       exporting mid-sentence does not disturb the caret you are typing with. */
+    var doc = document.documentElement.cloneNode(true);
+    var app = doc.querySelector('#app');
+    if (app) U.clear(app);
+    var tag = doc.querySelector('#embedded-production');
+    if (tag) tag.textContent = bakeable(p);
+    var html = '<!doctype html>\n' + doc.outerHTML + '\n';
+    if (opts.download !== false) download(safeName(p.title, opts.share ? ' 给别人.html' : '.html'), html, 'text/html');
     return html;
   }
 
@@ -7308,8 +7623,8 @@ U.io = (function () {
      editor's DOM belongs to another screen, and one beat per page is a shape
      no live layout has. */
   function printSheets(production) {
-    var p = production || U.store.production();
-    var beats = (p && p.beats) || [];
+    var p = production || U.store.production() || {};
+    var beats = p.beats || [];
     var head = [];
     if (p.occasion) head.push(p.occasion);
     if (p.date) head.push(String(p.date).replace('T', ' '));
@@ -7393,6 +7708,41 @@ U.io = (function () {
     });
   }
 
+  /* A phone photo or a retina screen-grab is several megabytes as a data URL,
+     and ten of them do not fit in localStorage at all. Slides are read at slide
+     size, so 1600px wide is plenty and costs about a tenth. */
+  var MAX_W = 1600, QUALITY = 0.82;
+  function encode(canvas, type) {
+    try {
+      var out = canvas.toDataURL(type, QUALITY);
+      return out.indexOf('data:' + type) === 0 ? out : '';
+    } catch (e) { return ''; }          /* a tainted canvas throws instead */
+  }
+  function downscale(dataUrl) {
+    return new Promise(function (resolve) {
+      /* Vectors are already small and rasterising one would only lose. */
+      if (/^data:image\/svg/.test(dataUrl) || typeof document === 'undefined') return resolve(dataUrl);
+      var img = new Image();
+      img.onload = function () {
+        var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h || w <= MAX_W) return resolve(dataUrl);
+        var c = document.createElement('canvas');
+        c.width = MAX_W; c.height = Math.round(h * MAX_W / w);
+        var ctx = c.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        /* A canvas past the browser's limits hands back "data:," rather than
+           throwing, and that is shorter than any real image — so the shorter
+           of the two would have been stored as the slide, and the slide would
+           be gone. Take the result only if it is actually an image. */
+        var out = encode(c, 'image/webp') || encode(c, 'image/jpeg');
+        resolve(out && out.length < dataUrl.length ? out : dataUrl);
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+
   function beatFromImage(name, dataUrl, index) {
     return {
       id: 'b' + Date.now().toString(36) + '-' + index,
@@ -7412,6 +7762,8 @@ U.io = (function () {
     list.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true }); });
     if (!list.length) return Promise.resolve({ added: 0, beats: [] });
     return Promise.all(list.map(readDataUrl)).then(function (urls) {
+      return Promise.all(urls.map(function (u) { return u ? downscale(u) : Promise.resolve(''); }));
+    }).then(function (urls) {
       var p = U.store.production();
       if (!p) return { added: 0, beats: [] };
       var start = (p.beats || []).length;
@@ -7421,8 +7773,10 @@ U.io = (function () {
         made.push(beatFromImage(list[i].name, url, start + made.length));
       });
       if (!made.length) return { added: 0, beats: [] };
-      U.store.update(function () { p.beats = (p.beats || []).concat(made); });
-      return { added: made.length, beats: made };
+      var stored = U.store.update(function () { p.beats = (p.beats || []).concat(made); });
+      /* Whether it actually persisted, so the caller can say so rather than
+         reporting a success the next reload would contradict. */
+      return { added: made.length, beats: made, stored: stored };
     });
   }
 
@@ -7487,6 +7841,9 @@ U.io = (function () {
       err('count', '节数对不上：这边有 ' + beats.length + ' 节，这份给了 ' + incoming.length + ' 节。');
     }
 
+    /* Everything past this line is markup this session did not write. The
+       stage renders leads and scripts as HTML, so it goes through the gate
+       once, here, rather than at each of the dozen places that render it. */
     var rate = (production && production.rate) || U.DEFAULT_RATE;
     var target = Number(production && production.target) || 0;
     var noCue = [], noScript = [], guessed = [], sum = 0;
@@ -7496,7 +7853,7 @@ U.io = (function () {
       var mine = beats[i] || {};
       var tag = b.n ? String(b.n) : label(mine, i);
       var cue = Array.isArray(b.cue) ? b.cue.filter(function (c) { return c && (c.lead || (c.say && c.say.length)); }) : [];
-      var script = typeof b.script === 'string' ? b.script : '';
+      var script = U.safeHtml(typeof b.script === 'string' ? b.script : '');
       if (!cue.length) noCue.push(tag);
       if (!blockText(script).length) noScript.push(tag);
 
@@ -7517,8 +7874,8 @@ U.io = (function () {
           return {
             flag: c.flag ? String(c.flag) : '',
             cols: Array.isArray(c.cols) ? c.cols.map(String) : [],
-            lead: String(c.lead == null ? '' : c.lead),
-            say: Array.isArray(c.say) ? c.say.map(String) : (c.say ? [String(c.say)] : []),
+            lead: U.safeHtml(c.lead),
+            say: (Array.isArray(c.say) ? c.say : (c.say ? [c.say] : [])).map(function (x) { return U.safeHtml(x); }),
             notes: Array.isArray(c.notes) ? c.notes.map(String) : []
           };
         }),
@@ -7579,6 +7936,8 @@ U.io = (function () {
     plainText: plainText,
     print: print,
     printSheets: printSheets,
+    downscale: downscale,
+    strip: strip,
     importImages: importImages,
     importDeck: importDeck,
     sortFiles: sortFiles,
@@ -7607,7 +7966,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = U.io;
     if (!root) return;
     var name = U.store.get().ui.view;
     var def = U.views.get(name);
-    if (!def) { U.clear(root).appendChild(U.el('div', { class: 'u-lbl', style: { padding: '24px' } }, '没有这个界面：' + name)); return; }
+    if (!def) {
+      /* Forget what was mounted, or coming back to this same view finds
+         mounted === name and leaves the apology on screen. */
+      mounted = null;
+      U.clear(root).appendChild(U.el('div', { class: 'u-lbl', style: { padding: '24px' } }, '没有这个界面：' + name));
+      return;
+    }
     if (mounted !== name) {
       U.clear(root);
       mounted = name;
